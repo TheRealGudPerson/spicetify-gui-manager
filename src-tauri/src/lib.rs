@@ -43,7 +43,10 @@ struct CustomizationInventory {
     color_schemes: Vec<String>,
     current_theme: String,
     current_color_scheme: String,
+    enabled_extensions: Vec<String>,
+    enabled_custom_apps: Vec<String>,
     directories: Vec<String>,
+    scan_diagnostics: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -149,6 +152,51 @@ fn discover_color_schemes(theme_dir: &Path, theme_name: &str) -> Vec<String> {
 }
 
 #[tauri::command]
+fn config_directory() -> Option<PathBuf> {
+    // The CLI's "userdata" path is not necessarily the directory holding
+    // config-xpui.ini. Prefer the real config file's parent when discoverable.
+    if let Ok(config) = std::env::var("SPICETIFY_CONFIG") {
+        let path = PathBuf::from(config);
+        if path.is_file() {
+            return path.parent().map(Path::to_path_buf);
+        }
+        if path.is_dir() && (path.join("config-xpui.ini").exists() || path.join("config.ini").exists()) {
+            return Some(path);
+        }
+    }
+
+    if let Ok(output) = execute(&["path", "all"]) {
+        if output.status.success() {
+            for line in output_text(&output.stdout).lines() {
+                let path = PathBuf::from(line.trim());
+                if path.file_name().is_some_and(|name| name == "config-xpui.ini" || name == "config.ini") {
+                    if let Some(parent) = path.parent() {
+                        return Some(parent.to_path_buf());
+                    }
+                }
+            }
+        }
+    }
+
+    if let Ok(home) = std::env::var("HOME") {
+        let home = PathBuf::from(home);
+        let mut candidates = Vec::new();
+        if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+            candidates.push(PathBuf::from(xdg).join("spicetify"));
+        }
+        candidates.push(home.join(".config").join("spicetify"));
+        candidates.push(home.join(".spicetify"));
+        if let Some(path) = candidates.into_iter().find(|path| {
+            path.join("config-xpui.ini").is_file() || path.join("config.ini").is_file()
+        }) {
+            return Some(path);
+        }
+    }
+
+    cli_path("userdata").filter(|path| path.is_dir())
+}
+
+#[tauri::command]
 fn get_status() -> Status {
     let version_result = execute(&["--version"]);
     let spicetify_found = version_result.as_ref().map(|result| result.status.success()).unwrap_or(false);
@@ -156,7 +204,7 @@ fn get_status() -> Status {
         .filter(|result| result.status.success())
         .map(|result| output_text(&result.stdout))
         .filter(|value| !value.is_empty());
-    let config_path = cli_path("userdata").or_else(|| cli_path("config"))
+    let config_path = config_directory()
         .map(|path| path.to_string_lossy().to_string());
     Status {
         platform: if cfg!(target_os = "windows") { "Windows".into() }
@@ -290,6 +338,25 @@ fn get_customizations() -> Result<CustomizationInventory, String> {
     let extensions = list_entries(&extension_dir, "extension", &enabled_extensions);
     let custom_apps = list_entries(&apps_dir, "custom-app", &enabled_apps);
     let color_schemes = discover_color_schemes(&theme_dir, &current_theme);
+
+    let describe_dir = |label: &str, path: &Path, count: usize| -> String {
+        let state = if !path.exists() {
+            "missing"
+        } else if !path.is_dir() {
+            "not a directory"
+        } else {
+            "readable directory"
+        };
+        format!("{label}: {} [{state}; {count} items]", path.display())
+    };
+    let scan_diagnostics = vec![
+        describe_dir("Themes", &theme_dir, themes.len()),
+        describe_dir("Extensions", &extension_dir, extensions.len()),
+        describe_dir("Custom apps", &apps_dir, custom_apps.len()),
+        format!("Configured current_theme: {}", if current_theme.is_empty() { "(empty)" } else { &current_theme }),
+        format!("Configured extensions: {}", if enabled_extensions.is_empty() { "(none)" } else { &enabled_extensions.join(", ") }),
+        format!("Configured custom_apps: {}", if enabled_apps.is_empty() { "(none)" } else { &enabled_apps.join(", ") }),
+    ];
     Ok(CustomizationInventory {
         themes,
         extensions,
@@ -297,11 +364,14 @@ fn get_customizations() -> Result<CustomizationInventory, String> {
         color_schemes,
         current_theme,
         current_color_scheme,
+        enabled_extensions,
+        enabled_custom_apps: enabled_apps,
         directories: vec![
             format!("Themes: {}", theme_dir.display()),
             format!("Extensions: {}", extension_dir.display()),
             format!("Custom apps: {}", apps_dir.display()),
         ],
+        scan_diagnostics,
     })
 }
 
@@ -336,6 +406,8 @@ fn set_config_value(key: String, value: String) -> Result<CommandResult, String>
 #[tauri::command]
 fn get_backups() -> Result<Vec<BackupEntry>, String> {
     let backup_dir = cli_path("backup")
+        .filter(|path| path.is_dir())
+        .or_else(|| config_directory().map(|path| path.join("Backup")))
         .or_else(|| cli_path("userdata").map(|path| path.join("Backup")))
         .ok_or_else(|| "Could not locate the Spicetify backup directory.".to_string())?;
     if !backup_dir.exists() {
