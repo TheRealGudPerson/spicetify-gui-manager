@@ -363,13 +363,23 @@ fn get_customizations() -> Result<CustomizationInventory, String> {
         };
         format!("{label}: {} [{state}; {count} items]", path.display())
     };
+    let extensions_summary = if enabled_extensions.is_empty() {
+        "(none)".to_string()
+    } else {
+        enabled_extensions.join(", ")
+    };
+    let custom_apps_summary = if enabled_apps.is_empty() {
+        "(none)".to_string()
+    } else {
+        enabled_apps.join(", ")
+    };
     let scan_diagnostics = vec![
         describe_dir("Themes", &theme_dir, themes.len()),
         describe_dir("Extensions", &extension_dir, extensions.len()),
         describe_dir("Custom apps", &apps_dir, custom_apps.len()),
         format!("Configured current_theme: {}", if current_theme.is_empty() { "(empty)" } else { &current_theme }),
-        format!("Configured extensions: {}", if enabled_extensions.is_empty() { "(none)" } else { &enabled_extensions.join(", ") }),
-        format!("Configured custom_apps: {}", if enabled_apps.is_empty() { "(none)" } else { &enabled_apps.join(", ") }),
+        format!("Configured extensions: {extensions_summary}"),
+        format!("Configured custom_apps: {custom_apps_summary}"),
     ];
     Ok(CustomizationInventory {
         themes,
