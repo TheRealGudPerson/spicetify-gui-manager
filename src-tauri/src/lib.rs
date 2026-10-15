@@ -225,7 +225,7 @@ fn customization_dir(kind: &str) -> PathBuf {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Ok(config) = std::env::var("SPICETIFY_CONFIG") {
         let path = PathBuf::from(config);
-        candidates.push(if path.file_name().is_some_and(|name| name.eq_ignore_ascii_case(folder)) {
+        candidates.push(if path.file_name().is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(folder)) {
             path
         } else {
             path.join(folder)
