@@ -206,7 +206,6 @@ fn detect_spotify() -> bool {
     false
 }
 
-#[tauri::command]
 fn customization_dir(kind: &str) -> PathBuf {
     let folder = match kind {
         "themes" => "Themes",
