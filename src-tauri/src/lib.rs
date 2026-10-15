@@ -207,14 +207,61 @@ fn detect_spotify() -> bool {
 }
 
 #[tauri::command]
+fn customization_dir(kind: &str) -> PathBuf {
+    let folder = match kind {
+        "themes" => "Themes",
+        "extensions" => "Extensions",
+        "custom_apps" => "CustomApps",
+        _ => kind,
+    };
+
+    // Prefer paths reported by the installed CLI, but only when they point to
+    // directories that actually exist. Some CLI versions do not support
+    // "spicetify path <name>" and return an error instead.
+    if let Some(path) = cli_path(kind).filter(|path| path.is_dir()) {
+        return path;
+    }
+
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Ok(config) = std::env::var("SPICETIFY_CONFIG") {
+        let path = PathBuf::from(config);
+        candidates.push(if path.file_name().is_some_and(|name| name.eq_ignore_ascii_case(folder)) {
+            path
+        } else {
+            path.join(folder)
+        });
+    }
+
+    if let Some(userdata) = cli_path("userdata").filter(|path| path.is_dir()) {
+        candidates.push(userdata.join(folder));
+    }
+
+    if cfg!(windows) {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            candidates.push(PathBuf::from(appdata).join("spicetify").join(folder));
+        }
+        if let Ok(profile) = std::env::var("USERPROFILE") {
+            candidates.push(PathBuf::from(profile).join(".config").join("spicetify").join(folder));
+        }
+    } else if let Ok(home) = std::env::var("HOME") {
+        let home = PathBuf::from(home);
+        if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+            candidates.push(PathBuf::from(xdg).join("spicetify").join(folder));
+        }
+        candidates.push(home.join(".config").join("spicetify").join(folder));
+        candidates.push(home.join(".spicetify").join(folder));
+    }
+
+    candidates.iter().find(|path| path.is_dir()).cloned()
+        .or_else(|| candidates.into_iter().next())
+        .unwrap_or_else(|| PathBuf::from(folder))
+}
+
+#[tauri::command]
 fn get_customizations() -> Result<CustomizationInventory, String> {
-    let theme_dir = cli_path("themes").ok_or_else(|| "Could not locate the Spicetify themes directory. Check that Spicetify is installed.".to_string())?;
-    let extension_dir = cli_path("extensions").unwrap_or_else(|| {
-        cli_path("userdata").unwrap_or_default().join("Extensions")
-    });
-    let apps_dir = cli_path("custom_apps").unwrap_or_else(|| {
-        cli_path("userdata").unwrap_or_default().join("CustomApps")
-    });
+    let theme_dir = customization_dir("themes");
+    let extension_dir = customization_dir("extensions");
+    let apps_dir = customization_dir("custom_apps");
     let current_theme = config_value("current_theme").trim_matches('"').to_string();
     let current_color_scheme = config_value("color_scheme").trim_matches('"').to_string();
     let enabled_extensions = split_config_list(&config_value("extensions"));
