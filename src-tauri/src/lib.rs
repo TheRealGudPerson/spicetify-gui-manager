@@ -177,19 +177,27 @@ fn config_directory() -> Option<PathBuf> {
         }
     }
 
+    let mut candidates = Vec::new();
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        candidates.push(PathBuf::from(appdata).join("spicetify"));
+    }
+    if let Ok(profile) = std::env::var("USERPROFILE") {
+        let profile = PathBuf::from(profile);
+        candidates.push(profile.join(".config").join("spicetify"));
+        candidates.push(profile.join(".spicetify"));
+    }
     if let Ok(home) = std::env::var("HOME") {
         let home = PathBuf::from(home);
-        let mut candidates = Vec::new();
         if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
             candidates.push(PathBuf::from(xdg).join("spicetify"));
         }
         candidates.push(home.join(".config").join("spicetify"));
         candidates.push(home.join(".spicetify"));
-        if let Some(path) = candidates.into_iter().find(|path| {
-            path.join("config-xpui.ini").is_file() || path.join("config.ini").is_file()
-        }) {
-            return Some(path);
-        }
+    }
+    if let Some(path) = candidates.into_iter().find(|path| {
+        path.join("config-xpui.ini").is_file() || path.join("config.ini").is_file()
+    }) {
+        return Some(path);
     }
 
     cli_path("userdata").filter(|path| path.is_dir())
@@ -406,8 +414,8 @@ fn set_config_value(key: String, value: String) -> Result<CommandResult, String>
 fn get_backups() -> Result<Vec<BackupEntry>, String> {
     let backup_dir = cli_path("backup")
         .filter(|path| path.is_dir())
-        .or_else(|| config_directory().map(|path| path.join("Backup")))
-        .or_else(|| cli_path("userdata").map(|path| path.join("Backup")))
+        .or_else(|| config_directory().map(|path| path.join("Backup")).filter(|path| path.is_dir()))
+        .or_else(|| cli_path("userdata").map(|path| path.join("Backup")).filter(|path| path.is_dir()))
         .ok_or_else(|| "Could not locate the Spicetify backup directory.".to_string())?;
     if !backup_dir.exists() {
         return Ok(Vec::new());
