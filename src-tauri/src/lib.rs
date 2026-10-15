@@ -222,6 +222,27 @@ fn customization_dir(kind: &str) -> PathBuf {
     }
 
     let mut candidates: Vec<PathBuf> = Vec::new();
+
+    // "spicetify path all" is supported by older CLI releases where
+    // "spicetify path themes/extensions/custom_apps" is not. Its output
+    // includes files beneath these folders, so recover the directory from
+    // those reported paths rather than guessing the CLI's path subcommands.
+    if let Ok(output) = execute(&["path", "all"]) {
+        if output.status.success() {
+            for line in output_text(&output.stdout).lines() {
+                let reported = PathBuf::from(line.trim());
+                for ancestor in reported.ancestors() {
+                    if ancestor.file_name().is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(folder))
+                        && ancestor.is_dir()
+                    {
+                        candidates.push(ancestor.to_path_buf());
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     if let Ok(config) = std::env::var("SPICETIFY_CONFIG") {
         let path = PathBuf::from(config);
         candidates.push(if path.file_name().is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(folder)) {
