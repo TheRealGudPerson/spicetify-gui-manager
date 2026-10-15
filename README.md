@@ -1,44 +1,56 @@
 # SpiceDeck
 
-A cross-platform desktop manager for Spicetify, built with Tauri, React, and TypeScript.
+SpiceDeck is a cross-platform desktop GUI for managing a local Spicetify installation. It uses Tauri 2, React, TypeScript, and a small Rust backend. The official Spicetify CLI remains the source of truth.
 
-> Early development: the initial scaffold focuses on a safe dashboard, Spicetify detection, command execution, configuration inspection, and maintenance actions. Marketplace-style browsing and richer profile management are planned.
+## Current features
+- Detect Spicetify and report basic Spotify installation status.
+- Run explicit apply, backup, restore, and configuration-inspection actions.
+- Discover local themes, extensions, and custom apps.
+- Select an installed theme and discover color-scheme sections from its `color.ini`.
+- Enable or disable discovered extensions and custom apps through Spicetify config.
+- Edit an allowlist of common configuration values.
+- View the local backup directory and export activity logs.
+- Show command output and errors rather than silently claiming success.
 
-## Goals
+Marketplace browsing and downloading/installing third-party customizations are not implemented yet. The local library views manage items already installed on the computer.
 
-- One consistent GUI for Windows, macOS, and Linux.
-- Use the official Spicetify CLI as the engine rather than reimplementing it.
-- Show command output and useful diagnostics.
-- Make backup, restore, apply, and configuration workflows accessible.
-- Never silently overwrite user configuration or run privileged commands.
+## Requirements
+- Node.js and npm
+- Rust toolchain
+- Tauri 2 system dependencies for your operating system
+- Spicetify CLI for live management features
 
-## Stack
-
-- Tauri 2 (Rust desktop backend)
-- React + TypeScript + Vite
-- Lucide icons
+### Fedora
+```bash
+sudo dnf install webkit2gtk4.1-devel openssl-devel curl wget file libappindicator-gtk3-devel librsvg2-devel
+```
 
 ## Development
-
-Prerequisites: Node.js 20+, npm, Rust stable, and the Tauri prerequisites for your operating system.
-
 ```bash
+git clone https://github.com/TheRealGudPerson/spicetify-gui-manager.git
+cd spicetify-gui-manager
 npm install
 npm run tauri dev
 ```
 
-To run the frontend alone while working on UI:
-
+Build the frontend:
 ```bash
-npm run dev
+npm run build
 ```
 
-See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for platform setup and [docs/ROADMAP.md](docs/ROADMAP.md) for planned features.
+Build a desktop bundle:
+```bash
+npm run tauri build
+```
 
-## Safety
+## Safety notes
+- Routine operations run as the current user and do not automatically elevate privileges.
+- Only fixed maintenance actions and allowlisted configuration keys are exposed by the Rust backend.
+- Applying or restoring Spotify resources can change files managed by Spotify or Spicetify. Review command output before proceeding.
+- Third-party themes, extensions, and custom apps can execute code inside Spotify. Install only sources you trust.
 
-SpiceDeck invokes the `spicetify` executable available to the current user. It does not request administrator/root access. Actions that modify Spotify or Spicetify state are explicit, and command output is shown in the app.
+## Development notes
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) and [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## License
-
-MIT. See [LICENSE](LICENSE).
+MIT

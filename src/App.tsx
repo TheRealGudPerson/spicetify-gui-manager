@@ -2,21 +2,25 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Activity, Archive, ArrowDownToLine, ArrowUpRight, Check, ChevronRight, CircleHelp,
-  Command, Download, ExternalLink, FileCog, FolderOpen, Gauge, Heart, Layers3,
+  Command, Download, ExternalLink, FileCog, FolderOpen, Gauge, Heart, Layers3, Save, ToggleLeft, ToggleRight, FileDown,
   LayoutDashboard, LoaderCircle, Palette, Play, RefreshCw, RotateCcw, Search,
   Settings2, ShieldCheck, Sparkles, Terminal, WandSparkles, X
 } from "lucide-react";
 
 type Status = { platform: string; spicetifyFound: boolean; version: string | null; spotifyFound: boolean; configPath: string | null };
 type CommandResult = { success: boolean; command: string; code: number | null; stdout: string; stderr: string };
+type Customization = { name: string; kind: string; path: string; enabled: boolean };
+type Inventory = { themes: Customization[]; extensions: Customization[]; customApps: Customization[]; colorSchemes: string[]; currentTheme: string; currentColorScheme: string; directories: string[] };
+type BackupEntry = { name: string; path: string; size: number; modified: number | null; isDirectory: boolean };
+
 type Section = "Overview" | "Themes" | "Extensions" | "Custom Apps" | "Color Schemes" | "Configuration" | "Backups" | "Logs";
 
 const navigation: { name: Section; icon: typeof LayoutDashboard; note?: string }[] = [
   { name: "Overview", icon: LayoutDashboard },
-  { name: "Themes", icon: Palette, note: "Soon" },
-  { name: "Extensions", icon: Layers3, note: "Soon" },
-  { name: "Custom Apps", icon: Sparkles, note: "Soon" },
-  { name: "Color Schemes", icon: WandSparkles, note: "Soon" },
+  { name: "Themes", icon: Palette },
+  { name: "Extensions", icon: Layers3 },
+  { name: "Custom Apps", icon: Sparkles },
+  { name: "Color Schemes", icon: WandSparkles },
   { name: "Configuration", icon: Settings2 },
   { name: "Backups", icon: Archive },
   { name: "Logs", icon: Terminal }
@@ -37,6 +41,11 @@ function App() {
   const [query, setQuery] = useState("");
   const [configText, setConfigText] = useState("");
   const [notice, setNotice] = useState("");
+  const [inventory, setInventory] = useState<Inventory | null>(null);
+  const [backups, setBackups] = useState<BackupEntry[]>([]);
+  const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [backupLoading, setBackupLoading] = useState(false);
+  const [configDraft, setConfigDraft] = useState<Record<string, string>>({});
 
   const addLog = useCallback((text: string, kind = "info") => {
     setLogs(current => [{ time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), text, kind }, ...current].slice(0, 80));
@@ -77,6 +86,73 @@ function App() {
       setBusyAction("");
     }
   }, [addLog, refreshStatus]);
+
+
+  const refreshInventory = useCallback(async () => {
+    setInventoryLoading(true);
+    try {
+      const next = await invoke<Inventory>("get_customizations");
+      setInventory(next);
+      addLog("Refreshed installed customization inventory", "success");
+    } catch (error) {
+      setNotice(String(error));
+      addLog(`Customization scan failed: ${String(error)}`, "error");
+    } finally { setInventoryLoading(false); }
+  }, [addLog]);
+
+  const refreshBackups = useCallback(async () => {
+    setBackupLoading(true);
+    try { setBackups(await invoke<BackupEntry[]>("get_backups")); }
+    catch (error) { setNotice(String(error)); addLog(`Backup history could not be read: ${String(error)}`, "warning"); }
+    finally { setBackupLoading(false); }
+  }, [addLog]);
+
+  useEffect(() => {
+    if (["Themes", "Extensions", "Custom Apps", "Color Schemes"].includes(section) && status?.spicetifyFound) void refreshInventory();
+    if (section === "Backups" && status?.spicetifyFound) void refreshBackups();
+  }, [section, status?.spicetifyFound, refreshInventory, refreshBackups]);
+
+  const saveConfigValue = useCallback(async (key: string, value: string) => {
+    setBusyAction(`config:${key}`);
+    setNotice("");
+    try {
+      const response = await invoke<CommandResult>("set_config_value", { key, value });
+      setResult(response);
+      addLog(`$ ${response.command}`, "command");
+      if (response.stdout) addLog(response.stdout, "output");
+      if (response.stderr) addLog(response.stderr, response.success ? "warning" : "error");
+      addLog(response.success ? `Saved ${key}` : `Could not save ${key}`, response.success ? "success" : "error");
+      if (!response.success) setNotice(response.stderr || response.stdout || `Spicetify could not save ${key}.`);
+      if (response.success) {
+        await refreshInventory();
+        if (["current_theme", "color_scheme", "extensions", "custom_apps"].includes(key)) setNotice(`${key} saved. Select Apply changes to apply it to Spotify.`);
+      }
+    } catch (error) { setNotice(String(error)); addLog(String(error), "error"); }
+    finally { setBusyAction(""); }
+  }, [addLog, refreshInventory]);
+
+  const toggleCustomization = useCallback(async (item: Customization, kind: "extensions" | "custom_apps") => {
+    if (!inventory) return;
+    const items = kind === "extensions" ? inventory.extensions : inventory.customApps;
+    const next = items.filter(entry => entry.name !== item.name && entry.enabled).map(entry => entry.name);
+    if (!item.enabled) next.push(item.name);
+    await saveConfigValue(kind, next.join(", "));
+  }, [inventory, saveConfigValue]);
+
+  const exportLogs = useCallback(() => {
+    const text = logs.map(item => `[${item.time}] [${item.kind.toUpperCase()}] ${item.text}`).join("\n");
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `spicedeck-logs-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    addLog("Exported activity log", "success");
+  }, [logs, addLog]);
+
+  const formatBytes = (bytes: number) => bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  const formatDate = (seconds: number | null) => seconds ? new Date(seconds * 1000).toLocaleString() : "Date unavailable";
 
   const filteredLogs = useMemo(() => logs.filter(item => item.text.toLowerCase().includes(query.toLowerCase())), [logs, query]);
 
@@ -134,13 +210,55 @@ function App() {
           <footer className="footer"><span><Heart size={12}/> Open source, built for customization.</span><span>SpiceDeck is independent and not affiliated with Spotify or Spicetify.</span></footer>
         </>}
 
-        {section === "Configuration" && <><div className="page-heading compact"><div><div className="eyebrow"><span className="eyebrow-line"/> PREFERENCES</div><h1>Configuration<span>.</span></h1><p>Inspect your Spicetify settings and current paths.</p></div><button className="button button-primary" disabled={!status?.spicetifyFound || !!busyAction} onClick={() => void runAction("config")}><RefreshCw size={15}/>{runLabel("config")}</button></div><div className="panel config-panel"><div className="panel-heading"><div><h2>CLI configuration output</h2><p>Read-only for now. Editing comes after safe parsing and validation.</p></div><span className="tag tag-muted">Read only</span></div><pre className="config-output">{configText || "Select “Read configuration” to retrieve the current Spicetify configuration. Nothing is changed by this action."}</pre></div></>}
+        {section === "Configuration" && <>
+          <div className="page-heading compact"><div><div className="eyebrow"><span className="eyebrow-line"/> PREFERENCES</div><h1>Configuration<span>.</span></h1><p>Edit supported Spicetify settings. Changes may require applying to Spotify.</p></div><button className="button button-primary" disabled={!status?.spicetifyFound || !!busyAction} onClick={() => void runAction("config")}><RefreshCw size={15}/>{runLabel("config")}</button></div>
+          {notice && <div className="notice"><X size={16}/><span>{notice}</span><button onClick={() => setNotice("")}><X size={14}/></button></div>}
+          <div className="panel config-panel"><div className="panel-heading"><div><h2>Editable settings</h2><p>Only allowlisted keys are written as separate CLI arguments.</p></div><span className="tag tag-muted">Validated</span></div>
+            <div className="config-form">{[
+              ["current_theme", "Current theme", inventory?.currentTheme ?? ""],
+              ["color_scheme", "Color scheme", inventory?.currentColorScheme ?? ""],
+              ["extensions", "Enabled extensions (comma-separated)", ""],
+              ["custom_apps", "Enabled custom apps (comma-separated)", ""],
+              ["inject_css", "Inject custom CSS (1 or 0)", ""],
+              ["replace_colors", "Replace colors (1 or 0)", ""],
+              ["overwrite_assets", "Overwrite assets (1 or 0)", ""],
+              ["experimental_features", "Experimental features (1 or 0)", ""]
+            ].map(([key, label, current]) => <label className="config-field" key={key}><span>{label}</span><input value={configDraft[key] ?? current} onChange={event => setConfigDraft(prev => ({ ...prev, [key]: event.target.value }))} placeholder={key === "extensions" || key === "custom_apps" ? "e.g. extension.js, another.js" : "Current value"} /><button className="button button-secondary" disabled={!!busyAction || !status?.spicetifyFound} onClick={() => void saveConfigValue(key, configDraft[key] ?? current)}><Save size={14}/> Save</button></label>)}</div>
+            <div className="inline-help"><ShieldCheck size={15}/><span>Saving changes configuration only. Use Apply changes to rebuild Spotify's customized resources.</span></div>
+          </div>
+          <div className="panel config-panel" style={{marginTop:14}}><div className="panel-heading"><div><h2>Raw configuration output</h2><p>Exact output from the Spicetify CLI.</p></div></div><pre className="config-output">{configText || "Use Read configuration to inspect the current CLI output."}</pre></div>
+        </>}
+        
+        {section === "Backups" && <>
+          <div className="page-heading compact"><div><div className="eyebrow"><span className="eyebrow-line"/> RECOVERY</div><h1>Backups<span>.</span></h1><p>Inspect backup files and create recovery points before applying changes.</p></div><button className="button button-secondary" onClick={() => void refreshBackups()} disabled={backupLoading}><RefreshCw size={14} className={backupLoading ? "spin" : ""}/> Refresh history</button></div>
+          {notice && <div className="notice"><X size={16}/><span>{notice}</span><button onClick={() => setNotice("")}><X size={14}/></button></div>}
+          <div className="panel recovery-card"><div className="big-action-icon"><Archive size={24}/></div><h2>Create a restore point</h2><p>Spicetify's backup command creates the recovery data. SpiceDeck lists entries it can find in the CLI-reported backup directory.</p><button className="button button-primary" disabled={!status?.spicetifyFound || !!busyAction} onClick={async () => { await runAction("backup"); await refreshBackups(); }}><Download size={15}/>{runLabel("backup")}</button><div className="warning-note"><ShieldCheck size={16}/><span>Restore replaces customized Spotify resources with backed-up originals. Review CLI output before proceeding.</span></div><div className="recovery-divider"/><div className="panel-heading"><div><h2>Backup history</h2><p>{backups.length} entries discovered</p></div><span className="tag tag-muted">{backupLoading ? "Scanning…" : "Local files"}</span></div>
+            {backups.length ? <div className="backup-list">{backups.map(item => <div className="backup-row" key={item.path}><div className="setup-symbol"><Archive size={15}/></div><div className="setup-label"><strong>{item.name}</strong><span>{formatDate(item.modified)} · {item.isDirectory ? "Folder" : formatBytes(item.size)}</span><span className="path-value">{item.path}</span></div></div>)}</div> : <div className="empty-state">{backupLoading ? "Scanning backup directory…" : "No backup entries found. Create a backup to generate recovery data."}</div>}
+          </div>
+          <div className="panel recovery-card" style={{marginTop:14}}><h3>Restore original Spotify files</h3><p>This runs the official <code>spicetify restore</code> command. It does not uninstall Spicetify itself.</p><button className="button button-danger" disabled={!status?.spicetifyFound || !!busyAction} onClick={() => { if (window.confirm("Restore original Spotify files? This removes Spicetify's applied modifications.")) void runAction("restore"); }}><RotateCcw size={15}/>{runLabel("restore")}</button></div>
+        </>}
+        
+        {section === "Logs" && <><div className="page-heading compact"><div><div className="eyebrow"><span className="eyebrow-line"/> DIAGNOSTICS</div><h1>Activity logs<span>.</span></h1><p>Transparent command output, because mystery errors are nobody's hobby.</p></div><div style={{display:"flex",gap:8}}><button className="button button-secondary" onClick={exportLogs}><FileDown size={15}/> Export logs</button><button className="button button-secondary" onClick={() => { setLogs([]); setResult(null); }}><X size={15}/> Clear logs</button></div></div><div className="panel logs-panel"><div className="log-toolbar"><div className="search-box"><Search size={15}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Filter activity…"/></div><span>{filteredLogs.length} entries</span></div><div className="log-stream">{filteredLogs.map((item, i) => <div className="log-line" key={item.time + item.text + i}><time>{item.time}</time><span className={`log-level ${item.kind}`}>{item.kind.toUpperCase()}</span><span>{item.text}</span></div>)}{!filteredLogs.length && <div className="empty-state">No matching log entries.</div>}</div>{result && <><div className="panel-heading log-result-heading"><div><h2>Command output</h2><p>{result.command}</p></div><span className={`tag ${result.success ? "tag-good" : "tag-bad"}`}>{result.success ? "Success" : "Failed"}</span></div><pre className="config-output">{[result.stdout, result.stderr].filter(Boolean).join("\n") || "No output."}</pre></>}</div></>}
 
-        {section === "Backups" && <><div className="page-heading compact"><div><div className="eyebrow"><span className="eyebrow-line"/> RECOVERY</div><h1>Backups<span>.</span></h1><p>Protect your setup before applying customizations.</p></div></div><div className="panel recovery-card"><div className="big-action-icon"><Archive size={24}/></div><h2>Make a restore point</h2><p>Spicetify's backup command saves the files needed for recovery. Create a backup before applying themes or extensions.</p><button className="button button-primary" disabled={!status?.spicetifyFound || !!busyAction} onClick={() => void runAction("backup")}><Download size={15}/>{runLabel("backup")}</button><div className="warning-note"><ShieldCheck size={16}/><span>Restore replaces customized Spotify resources with Spicetify's backed-up originals. Review the command output before proceeding.</span></div><div className="recovery-divider"/><h3>Restore original Spotify files</h3><p>This runs the official <code>spicetify restore</code> command. It does not uninstall Spicetify itself.</p><button className="button button-danger" disabled={!status?.spicetifyFound || !!busyAction} onClick={() => { if (window.confirm("Restore original Spotify files? This removes Spicetify's applied modifications.")) void runAction("restore"); }}><RotateCcw size={15}/>{runLabel("restore")}</button></div></>}
-
-        {section === "Logs" && <><div className="page-heading compact"><div><div className="eyebrow"><span className="eyebrow-line"/> DIAGNOSTICS</div><h1>Activity logs<span>.</span></h1><p>Transparent command output, because mystery errors are nobody's hobby.</p></div><button className="button button-secondary" onClick={() => { setLogs([]); setResult(null); }}><X size={15}/> Clear logs</button></div><div className="panel logs-panel"><div className="log-toolbar"><div className="search-box"><Search size={15}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Filter activity…"/></div><span>{filteredLogs.length} entries</span></div><div className="log-stream">{filteredLogs.map((item, i) => <div className="log-line" key={item.time + item.text + i}><time>{item.time}</time><span className={`log-level ${item.kind}`}>{item.kind.toUpperCase()}</span><span>{item.text}</span></div>)}{!filteredLogs.length && <div className="empty-state">No matching log entries.</div>}</div>{result && <><div className="panel-heading log-result-heading"><div><h2>Command output</h2><p>{result.command}</p></div><span className={`tag ${result.success ? "tag-good" : "tag-bad"}`}>{result.success ? "Success" : "Failed"}</span></div><pre className="config-output">{[result.stdout, result.stderr].filter(Boolean).join("\n") || "No output."}</pre></>}</div></>}
-
-        {["Themes", "Extensions", "Custom Apps", "Color Schemes"].includes(section) && <div className="coming-soon"><div className="coming-icon"><Sparkles size={25}/></div><div className="eyebrow"><span className="eyebrow-line"/> IN THE WORKS</div><h1>{section}<span>.</span></h1><p>This part of the manager is on the roadmap. The foundation is being built around the official Spicetify CLI first, so these tools can manage real installations instead of pretending to.</p><div className="coming-checklist"><div><Check size={15}/> Cross-platform app shell</div><div><Check size={15}/> Local CLI detection</div><div><Check size={15}/> Safe maintenance actions</div><div className="pending"><Activity size={15}/> Browsing and installing customizations</div></div><button className="button button-secondary" onClick={() => setSection("Overview")}>Back to overview <ChevronRight size={15}/></button></div>}
+        {["Themes", "Extensions", "Custom Apps", "Color Schemes"].includes(section) && <>
+          <div className="page-heading compact"><div><div className="eyebrow"><span className="eyebrow-line"/> LOCAL LIBRARY</div><h1>{section}<span>.</span></h1><p>Manage customizations already installed in your Spicetify folders.</p></div><button className="button button-secondary" onClick={() => void refreshInventory()} disabled={inventoryLoading}><RefreshCw size={14} className={inventoryLoading ? "spin" : ""}/> Scan folders</button></div>
+          {notice && <div className="notice"><X size={16}/><span>{notice}</span><button onClick={() => setNotice("")}><X size={14}/></button></div>}
+          {!status?.spicetifyFound && <div className="panel config-panel"><p>Install Spicetify CLI and refresh status before managing customizations.</p></div>}
+          {status?.spicetifyFound && !inventory && <div className="panel config-panel"><p>{inventoryLoading ? "Scanning Spicetify directories…" : "No inventory loaded yet."}</p><button className="button button-primary" onClick={() => void refreshInventory()}>Scan now</button></div>}
+          {inventory && section === "Themes" && <div className="panel library-panel"><div className="panel-heading"><div><h2>Installed themes</h2><p>Select a theme, then apply it to Spotify.</p></div><span className="tag tag-muted">{inventory.themes.length} found</span></div>
+            {inventory.themes.length ? <div className="library-list">{inventory.themes.map(item => <div className="library-row" key={item.path}><div className="action-icon purple"><Palette size={17}/></div><div className="setup-label"><strong>{item.name}</strong><span className="path-value">{item.path}</span></div>{item.enabled ? <span className="tag tag-good">Selected</span> : <button className="button button-secondary" disabled={!!busyAction} onClick={() => void saveConfigValue("current_theme", item.name)}>Use theme</button>}</div>)}</div> : <div className="empty-state">No theme folders found in the Spicetify themes directory.</div>}
+            <div className="inline-help"><FolderOpen size={15}/><span>{inventory.directories[0] ?? "Theme directory unavailable"}</span></div></div>}
+          {inventory && section === "Extensions" && <div className="panel library-panel"><div className="panel-heading"><div><h2>Installed extensions</h2><p>Enable or disable extensions in configuration, then apply changes.</p></div><span className="tag tag-muted">{inventory.extensions.length} found</span></div>
+            {inventory.extensions.length ? <div className="library-list">{inventory.extensions.map(item => <div className="library-row" key={item.path}><div className="action-icon blue"><Layers3 size={17}/></div><div className="setup-label"><strong>{item.name}</strong><span className="path-value">{item.path}</span></div><button className={item.enabled ? "toggle-button enabled" : "toggle-button"} disabled={!!busyAction} onClick={() => void toggleCustomization(item, "extensions")} title={item.enabled ? "Disable extension" : "Enable extension"}>{item.enabled ? <ToggleRight size={24}/> : <ToggleLeft size={24}/>}<span>{item.enabled ? "Enabled" : "Disabled"}</span></button></div>)}</div> : <div className="empty-state">No extensions found in the Spicetify extensions directory.</div>}
+            <div className="inline-help"><FolderOpen size={15}/><span>{inventory.directories[1] ?? "Extension directory unavailable"}</span></div></div>}
+          {inventory && section === "Custom Apps" && <div className="panel library-panel"><div className="panel-heading"><div><h2>Installed custom apps</h2><p>Toggle custom apps in configuration, then apply changes.</p></div><span className="tag tag-muted">{inventory.customApps.length} found</span></div>
+            {inventory.customApps.length ? <div className="library-list">{inventory.customApps.map(item => <div className="library-row" key={item.path}><div className="action-icon mint"><Sparkles size={17}/></div><div className="setup-label"><strong>{item.name}</strong><span className="path-value">{item.path}</span></div><button className={item.enabled ? "toggle-button enabled" : "toggle-button"} disabled={!!busyAction} onClick={() => void toggleCustomization(item, "custom_apps")} title={item.enabled ? "Disable custom app" : "Enable custom app"}>{item.enabled ? <ToggleRight size={24}/> : <ToggleLeft size={24}/>}<span>{item.enabled ? "Enabled" : "Disabled"}</span></button></div>)}</div> : <div className="empty-state">No custom app folders found in the Spicetify custom apps directory.</div>}
+            <div className="inline-help"><FolderOpen size={15}/><span>{inventory.directories[2] ?? "Custom app directory unavailable"}</span></div></div>}
+          {inventory && section === "Color Schemes" && <div className="panel library-panel"><div className="panel-heading"><div><h2>Theme color schemes</h2><p>Color schemes are discovered from the selected theme's color.ini file.</p></div><span className="tag tag-muted">{Math.max(0, inventory.colorSchemes.length - 1)} found</span></div>
+            <div className="scheme-current"><span>Current theme</span><strong>{inventory.currentTheme || "Spicetify default"}</strong><span>Current scheme</span><strong>{inventory.currentColorScheme || "Default"}</strong></div>
+            {inventory.colorSchemes.length > 1 ? <div className="scheme-grid">{inventory.colorSchemes.filter(Boolean).map(scheme => <button className={scheme === inventory.currentColorScheme ? "scheme-card selected" : "scheme-card"} key={scheme} disabled={!!busyAction} onClick={() => void saveConfigValue("color_scheme", scheme)}><div className="scheme-swatches"><i/><i/><i/><i/></div><strong>{scheme}</strong><span>{scheme === inventory.currentColorScheme ? "Currently selected" : "Select scheme"}</span></button>)}</div> : <div className="empty-state">No named schemes found for this theme. Choose a theme with a color.ini file containing named sections.</div>}
+            <div className="inline-help"><Palette size={15}/><span>Choose a scheme, then use Apply changes on Overview to rebuild Spotify's resources.</span></div></div>}
+        </>}
       </div>
     </main>
   </div>;

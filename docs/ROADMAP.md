@@ -1,32 +1,37 @@
 # Roadmap
 
-## Foundation (in progress)
-
+## Foundation
 - [x] Tauri 2 + React + TypeScript shell
 - [x] Cross-platform Spicetify CLI detection
 - [x] Dashboard, status cards, and activity log
 - [x] Explicit apply, backup, restore, and config actions
-- [x] Fixed command allowlist in the Rust backend
+- [x] Fixed command allowlist for maintenance actions
 - [ ] Build and smoke-test on Windows, macOS, Fedora, and Ubuntu
-- [ ] Improve Spotify detection for Flatpak, Snap, custom paths, and Store installs
+- [ ] Verify all Spicetify path commands across supported CLI versions
 
-## Next
+## Local management
+- [x] Discover locally installed themes, extensions, and custom apps
+- [x] Select an installed theme and inspect its color schemes
+- [x] Enable/disable discovered extensions and custom apps in config
+- [x] Allowlisted visual editor for common config keys
+- [x] Display local backup-directory contents
+- [x] Export diagnostic activity logs
+- [ ] Test inventory parsing against real Spicetify installs and unusual filenames
+- [ ] Add import/export portable profiles with path sanitization
+- [ ] Add backup metadata, integrity checks, and safe restore-point selection
 
-- [ ] Installation wizard using official Spicetify installation guidance
-- [ ] Read and validate config values; safe visual config editor
-- [ ] Backup history and restore-point details
-- [ ] Error explanations and diagnostics export
-- [ ] Real Marketplace browsing for themes, extensions, snippets, and custom apps
-- [ ] Theme and color-scheme preview / selection
-- [ ] Extension and custom-app enable/disable controls
-- [ ] Import/export portable profiles without machine-specific paths
-- [ ] Update checks and release builds for Windows, macOS, and Linux
+## Marketplace and releases
+- [ ] Browse official Marketplace catalogs with clear source attribution
+- [ ] Install/update/remove themes, extensions, snippets, and custom apps
+- [ ] Preview theme colors from actual color.ini values
+- [ ] Add an installation wizard using official Spicetify guidance
+- [ ] Add update checks and signed release builds for Windows, macOS, and Linux
 - [ ] Accessibility review and light/dark theme preference
 
 ## Design constraints
-
 - The official Spicetify CLI remains the source of truth for supported operations.
 - No administrator/root requirement for routine tasks.
 - Destructive actions must be clearly named and confirmed.
 - Show command output and never claim an operation succeeded before the CLI returns success.
-- Portable profiles must distinguish shared preferences from operating-system-specific paths.
+- Treat downloaded customizations as untrusted code and never silently execute installs.
+- Portable profiles must distinguish shared preferences from OS-specific paths.
