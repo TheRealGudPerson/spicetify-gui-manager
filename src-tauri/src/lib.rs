@@ -151,7 +151,6 @@ fn discover_color_schemes(theme_dir: &Path, theme_name: &str) -> Vec<String> {
     names
 }
 
-#[tauri::command]
 fn config_directory() -> Option<PathBuf> {
     // The CLI's "userdata" path is not necessarily the directory holding
     // config-xpui.ini. Prefer the real config file's parent when discoverable.
