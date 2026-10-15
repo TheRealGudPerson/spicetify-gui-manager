@@ -190,15 +190,17 @@ fn detect_spotify() -> bool {
     #[cfg(target_os = "linux")]
     {
         let home = std::env::var("HOME").unwrap_or_default();
-        return [
-            Path::new("/usr/share/spotify"),
-            Path::new("/usr/lib/spotify"),
-            Path::new("/var/lib/flatpak/app/com.spotify.Client"),
-            Path::new("/var/lib/snapd/snap/bin/spotify"),
-            Path::new("/snap/bin/spotify"),
-            Path::new(&home).join(".local/share/flatpak/app/com.spotify.Client").as_path(),
-            Path::new(&home).join(".var/app/com.spotify.Client").as_path(),
-        ].iter().any(|path| path.exists());
+        let paths = vec![
+            PathBuf::from("/usr/share/spotify"),
+            PathBuf::from("/usr/lib/spotify"),
+            PathBuf::from("/var/lib/flatpak/app/com.spotify.Client"),
+            PathBuf::from("/var/lib/snapd/snap/bin/spotify"),
+            PathBuf::from("/snap/bin/spotify"),
+            Path::new(&home).join(".local/share/flatpak/app/com.spotify.Client"),
+            Path::new(&home).join(".var/app/com.spotify.Client"),
+            Path::new(&home).join(".local/share/spotify"),
+        ];
+        return paths.iter().any(|path| path.exists());
     }
     #[allow(unreachable_code)]
     false
