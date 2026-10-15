@@ -278,6 +278,13 @@ fn customization_dir(kind: &str) -> PathBuf {
 
     let mut candidates: Vec<PathBuf> = Vec::new();
 
+    // Prefer the directory that actually contains config-xpui.ini. On some
+    // systems, "path userdata" points to a legacy ~/.spicetify directory,
+    // while the active themes/extensions/apps live under ~/.config/spicetify.
+    if let Some(config) = config_directory().filter(|path| path.is_dir()) {
+        candidates.push(config.join(folder));
+    }
+
     // "spicetify path all" is supported by older CLI releases where
     // "spicetify path themes/extensions/custom_apps" is not. Its output
     // includes files beneath these folders, so recover the directory from
