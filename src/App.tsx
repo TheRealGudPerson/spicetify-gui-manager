@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import {
@@ -35,6 +36,7 @@ const demoLog = [
 
 function App() {
   const [section, setSection] = useState<Section>("Overview");
+  const [appVersion, setAppVersion] = useState("0.1.0");
   const [status, setStatus] = useState<Status | null>(null);
   const [loading, setLoading] = useState(false);
   const [busyAction, setBusyAction] = useState("");
@@ -70,6 +72,8 @@ function App() {
       setLoading(false);
     }
   }, [addLog]);
+
+  useEffect(() => { void getVersion().then(setAppVersion).catch(() => undefined); }, []);
 
   useEffect(() => { void refreshStatus(); }, [refreshStatus]);
 
@@ -231,7 +235,7 @@ function App() {
       <div className="sidebar-bottom">
         <div className="tip-card"><div className="tip-icon"><ShieldCheck size={17}/></div><strong>Local by design</strong><p>Commands run on this device as your current user. No admin access needed.</p></div>
         <button className="nav-item" onClick={() => window.open("https://spicetify.app/docs", "_blank", "noopener,noreferrer")}><CircleHelp size={17}/><span>Spicetify docs</span><ExternalLink size={13} className="external"/></button>
-        <div className="profile"><div className="avatar">SD</div><div className="profile-copy"><strong>SpiceDeck</strong><span>Early access · v0.1.0</span></div><div className="online-dot"/></div>
+        <div className="profile"><div className="avatar">SD</div><div className="profile-copy"><strong>SpiceDeck</strong><span>Early access · v{appVersion}</span></div><div className="online-dot"/></div>
       </div>
     </aside>
 
