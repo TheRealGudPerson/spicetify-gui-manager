@@ -84,13 +84,13 @@ function App() {
         setUpdateMessage("SpiceDeck " + update.version + " is available.");
         addLog("Update available: SpiceDeck " + update.version, "success");
       } else {
-        setUpdateMessage("SpiceDeck is already up to date.");
+        if (!quiet) setUpdateMessage("SpiceDeck is already up to date.");
         if (!quiet) addLog("SpiceDeck is up to date", "success");
       }
     } catch (error) {
       const message = String(error);
-      setUpdateError(message);
       if (!quiet) {
+        setUpdateError(message);
         setUpdateMessage("Could not check for updates.");
         addLog("Update check failed: " + message, "warning");
       }
