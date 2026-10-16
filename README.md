@@ -43,6 +43,27 @@ Build a desktop bundle:
 npm run tauri build
 ```
 
+## In-app updater
+
+SpiceDeck includes a top-right update control and an in-app notice when a newer signed release is available. Choosing **Install and restart** downloads the platform-specific update, verifies its signature, installs it, and relaunches SpiceDeck. Production update checks are automatic at launch; development builds do not poll for releases.
+
+### One-time release signing setup
+
+Tauri refuses unsigned updates. Before publishing releases, configure a signing key:
+
+1. Generate a key pair locally. Keep the private key private and backed up:
+   ```bash
+   npm run tauri signer generate -- -w ~/.tauri/spicedeck.key
+   ```
+2. Copy the contents of `~/.tauri/spicedeck.key.pub` into `plugins.updater.pubkey` in `src-tauri/tauri.conf.json`, replacing `REPLACE_WITH_TAURI_SIGNER_PUBLIC_KEY`.
+3. In GitHub, open **Settings → Secrets and variables → Actions** for this repository and add:
+   - `TAURI_SIGNING_PRIVATE_KEY`: the contents of `~/.tauri/spicedeck.key`
+   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: the password used when generating the key (leave it empty only if you generated an unencrypted key).
+4. Keep the private key and password out of the repository. Do not commit the private key or paste it into issues/chats.
+5. Bump the version in both `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` to the same new semantic version, commit the change, then push a matching tag such as `v0.2.0`. The GitHub Actions workflow builds Windows, Linux, and macOS release artifacts and publishes the signed updater metadata.
+
+The updater cannot work in installed builds until the public key and GitHub Actions secrets are configured and the first signed GitHub Release has been published. The public key is safe to commit; the private key is not.
+
 ## Safety notes
 - Routine operations run as the current user and do not automatically elevate privileges.
 - Only fixed maintenance actions and allowlisted configuration keys are exposed by the Rust backend.
