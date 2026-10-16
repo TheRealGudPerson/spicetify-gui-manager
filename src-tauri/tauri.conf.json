@@ -31,6 +31,15 @@
     "category": "Utility",
     "shortDescription": "Cross-platform Spicetify manager",
     "longDescription": "Manage Spicetify installations, maintenance actions, and configuration.",
-    "icon": []
+    "icon": [],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "REPLACE_WITH_TAURI_SIGNER_PUBLIC_KEY",
+      "endpoints": [
+        "https://github.com/TheRealGudPerson/spicetify-gui-manager/releases/latest/download/latest.json"
+      ]
+    }
   }
 }
