@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import {
   Activity, Archive, ArrowDownToLine, ArrowUpRight, Check, ChevronRight, CircleHelp,
   Command, Download, ExternalLink, FileCog, FolderOpen, Gauge, Heart, Layers3, Save, ToggleLeft, ToggleRight, FileDown,
@@ -46,6 +48,10 @@ function App() {
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [backupLoading, setBackupLoading] = useState(false);
   const [configDraft, setConfigDraft] = useState<Record<string, string>>({});
+  const [availableUpdate, setAvailableUpdate] = useState<Awaited<ReturnType<typeof check>>>(null);
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const [updateMessage, setUpdateMessage] = useState("");
+  const [updateError, setUpdateError] = useState("");
 
   const addLog = useCallback((text: string, kind = "info") => {
     setLogs(current => [{ time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), text, kind }, ...current].slice(0, 80));
@@ -66,6 +72,60 @@ function App() {
   }, [addLog]);
 
   useEffect(() => { void refreshStatus(); }, [refreshStatus]);
+
+  const checkForUpdates = useCallback(async (quiet = false) => {
+    setUpdateBusy(true);
+    setUpdateError("");
+    if (!quiet) setUpdateMessage("");
+    try {
+      const update = await check();
+      setAvailableUpdate(update);
+      if (update) {
+        setUpdateMessage("SpiceDeck " + update.version + " is available.");
+        addLog("Update available: SpiceDeck " + update.version, "success");
+      } else {
+        setUpdateMessage("SpiceDeck is already up to date.");
+        if (!quiet) addLog("SpiceDeck is up to date", "success");
+      }
+    } catch (error) {
+      const message = String(error);
+      setUpdateError(message);
+      if (!quiet) {
+        setUpdateMessage("Could not check for updates.");
+        addLog("Update check failed: " + message, "warning");
+      }
+    } finally {
+      setUpdateBusy(false);
+    }
+  }, [addLog]);
+
+  const installUpdate = useCallback(async () => {
+    if (!availableUpdate) {
+      await checkForUpdates();
+      return;
+    }
+    setUpdateBusy(true);
+    setUpdateError("");
+    setUpdateMessage("Downloading SpiceDeck " + availableUpdate.version + "...");
+    try {
+      await availableUpdate.downloadAndInstall();
+      setUpdateMessage("Update installed. Restarting SpiceDeck...");
+      addLog("Installed SpiceDeck " + availableUpdate.version + "; restarting", "success");
+      await relaunch();
+    } catch (error) {
+      const message = String(error);
+      setUpdateError(message);
+      setUpdateMessage("The update could not be installed.");
+      addLog("Update installation failed: " + message, "error");
+    } finally {
+      setUpdateBusy(false);
+    }
+  }, [availableUpdate, addLog, checkForUpdates]);
+
+  useEffect(() => {
+    // Avoid updater network traffic in development mode.
+    if (import.meta.env.PROD) void checkForUpdates(true);
+  }, [checkForUpdates]);
 
   const runAction = useCallback(async (action: string) => {
     setBusyAction(action);
@@ -176,7 +236,8 @@ function App() {
     </aside>
 
     <main className="main">
-      <header className="topbar"><div className="breadcrumb">Workspace <span>/</span> <strong>{section}</strong></div><div className="top-actions"><span className="platform-pill"><span className="pulse-dot"/>{status?.platform ?? "Detecting platform"}</span><button className="icon-button" title="Refresh status" onClick={() => void refreshStatus()} disabled={loading}><RefreshCw size={16} className={loading ? "spin" : ""}/></button></div></header>
+      <header className="topbar"><div className="breadcrumb">Workspace <span>/</span> <strong>{section}</strong></div><div className="top-actions"><span className="platform-pill"><span className="pulse-dot"/>{status?.platform ?? "Detecting platform"}</span><button className={"update-top-button " + (availableUpdate ? "has-update" : "")} title={availableUpdate ? "Install SpiceDeck " + availableUpdate.version : "Check for updates"} onClick={() => availableUpdate ? void installUpdate() : void checkForUpdates()} disabled={updateBusy}>{updateBusy ? <LoaderCircle size={15} className="spin"/> : availableUpdate ? <Download size={15}/> : <RefreshCw size={15}/>}<span>{updateBusy ? "Updating..." : availableUpdate ? "Update " + availableUpdate.version : "Check updates"}</span></button><button className="icon-button" title="Refresh status" onClick={() => void refreshStatus()} disabled={loading}><RefreshCw size={16} className={loading ? "spin" : ""}/></button></div></header>
+      {(availableUpdate || updateMessage || updateError) && <div className={"update-banner " + (availableUpdate ? "update-banner-ready" : updateError ? "update-banner-error" : "")}><div className="update-banner-icon">{availableUpdate ? <Download size={18}/> : updateError ? <CircleHelp size={18}/> : <RefreshCw size={18}/>}</div><div className="update-banner-copy"><strong>{availableUpdate ? "SpiceDeck " + availableUpdate.version + " is ready" : updateMessage || "Update status"}</strong><span>{availableUpdate ? (availableUpdate.body?.trim() || "A newer version is available. Install it now and SpiceDeck will restart.") : updateError ? updateError : "You can keep working while the app checks for updates."}</span></div>{availableUpdate && <button className="button button-primary" onClick={() => void installUpdate()} disabled={updateBusy}>{updateBusy ? <LoaderCircle size={15} className="spin"/> : <Download size={15}/>}Install and restart</button>}{!availableUpdate && <button className="icon-button" title="Dismiss update message" onClick={() => { setUpdateMessage(""); setUpdateError(""); }}><X size={15}/></button>}</div>}
       <div className="content">
         {section === "Overview" && <>
           <div className="page-heading"><div><div className="eyebrow"><span className="eyebrow-line"/> YOUR MUSIC, YOUR RULES</div><h1>Take control of <span>Spotify.</span></h1><p>Manage your Spicetify setup without living in a terminal.</p></div><button className="button button-primary" disabled={!status?.spicetifyFound || !!busyAction} onClick={() => void runAction("apply")}>{busyAction === "apply" ? <LoaderCircle className="spin" size={16}/> : <Play size={15} fill="currentColor"/>}{runLabel("apply")}</button></div>
