@@ -151,3 +151,7 @@ button { min-height: 34px; }
 .wizard-actions{display:flex;flex-wrap:wrap;gap:9px}
 .wizard-warning{margin:12px 0 0!important;padding:10px 12px;border:1px solid #51452b;border-radius:8px;background:#211e16;color:#d6c49b!important}
 @media(max-width:850px){.setup-wizard-progress{align-items:flex-start;flex-direction:column}.wizard-progress-connector{height:12px;width:1px;flex:0 0 12px;margin-left:14px}.wizard-command{align-items:stretch;flex-direction:column}.wizard-command .button{align-self:flex-start}}
+
+
+.wizard-initialize{margin-top:15px;padding:14px;border:1px solid var(--line);border-radius:9px;background:#171c17}
+.wizard-initialize p{font-size:11px;line-height:1.65;color:#a2ada2;margin:0 0 12px}
