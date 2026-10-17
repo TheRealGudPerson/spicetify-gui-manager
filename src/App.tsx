@@ -360,10 +360,10 @@ function App() {
             <div className={status?.spotifyFound && status?.spicetifyFound ? "wizard-progress-step current" : "wizard-progress-step"}><span>3</span><div><strong>Verify</strong><small>Log in and refresh status</small></div></div>
           </div>
           {!status?.spotifyFound && <section className="panel wizard-card">
-            <div className="wizard-card-icon spotify"><Activity size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 1</div><h2>Install Spotify</h2><p>Download the installer directly from Spotify's official download CDN, then run it using your platform's normal installation flow. SpiceDeck won't run installers silently or request administrator access behind your back.</p>
+            <div className="wizard-card-icon spotify"><Activity size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 1</div><h2>Install Spotify</h2><p>SpiceDeck downloads Spotify from its official CDN and runs the platform-specific installation flow. Linux uses Spotify's official APT repository on Debian/Ubuntu-based systems, or a user-scoped Flathub install when Flatpak is available.</p>
               {status?.platform === "Windows" && <button className="button button-primary" onClick={() => void installSoftware("spotify")} disabled={!!installerBusy}><Download size={15}/> {installerBusy === "spotify" ? "Downloading and installing…" : "Download and install Spotify"}</button>}
               {status?.platform === "macOS" && <button className="button button-primary" onClick={() => void installSoftware("spotify")} disabled={!!installerBusy}><Download size={15}/> {installerBusy === "spotify" ? "Downloading and installing…" : "Download and install Spotify"}</button>}
-              {status?.platform === "Linux" && <div className="wizard-platform-note"><strong>Linux installation depends on your distribution.</strong><p>Spicetify documents supported install layouts and package-manager routes. Choose the method for your distro; avoid Snap because its Spotify package cannot be modified by Spicetify.</p><button className="button button-primary" onClick={() => void installSoftware("spotify")} disabled={!!installerBusy}><Download size={15}/> Install Spotify automatically <ExternalLink size={13}/></button></div>}
+              {status?.platform === "Linux" && <div className="wizard-platform-note"><strong>Linux installation depends on your distribution.</strong><p>SpiceDeck checks your Linux distribution and chooses the official Spotify APT repository on Debian/Ubuntu-based systems, or a user-scoped Flatpak install when Flatpak is available. Snap is not used because Spicetify cannot modify Snap Spotify.</p><button className="button button-primary" onClick={() => void installSoftware("spotify")} disabled={!!installerBusy}><Download size={15}/> {installerBusy === "spotify" ? "Installing Spotify…" : "Install Spotify automatically"}</button></div>}
               {!status?.platform && <p>Detecting your operating system…</p>}
               <div className="wizard-footnote">After installing, launch Spotify and sign in. Spicetify recommends leaving it open for at least 60 seconds so it can generate the files it needs.</div>
             </div>
@@ -372,8 +372,8 @@ function App() {
           {!status?.spicetifyFound && <section className="panel wizard-card">
             <div className="wizard-card-icon cli"><Terminal size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 2</div><h2>Install Spicetify CLI</h2><p>SpiceDeck downloads the latest stable CLI release directly from the official Spicetify GitHub releases, selects the correct OS and CPU build, installs it in your user profile, and verifies the executable.</p>
 <button className="button button-primary" onClick={() => void installSoftware("spicetify")} disabled={!!installerBusy}><Download size={15}/>{installerBusy === "spicetify" ? "Downloading and installing…" : "Install Spicetify automatically"}</button>
-              {status?.platform === "Windows" && <p className="wizard-footnote">Run this in PowerShell as your normal user. If you prefer a package manager, the official guide also documents WinGet, Scoop, and Chocolatey.</p>}
-              {(status?.platform === "Linux" || status?.platform === "macOS") && <p className="wizard-footnote">Run this in your terminal as your normal user. Linux users can also use Homebrew, AUR, or the documented Nix integration where appropriate.</p>}
+              {status?.platform === "Windows" && <p className="wizard-footnote">SpiceDeck installs the official release into your user-local application data folder. It does not require a global PATH change.</p>}
+              {(status?.platform === "Linux" || status?.platform === "macOS") && <p className="wizard-footnote">SpiceDeck installs the official release into your user profile without running as root or modifying shell startup files.</p>}
               <button className="text-button wizard-doc-link" onClick={() => window.open("https://spicetify.co/docs/getting-started/", "_blank", "noopener,noreferrer")}>Read the official Spicetify guide <ExternalLink size={13}/></button>
             </div>
           </section>}
@@ -385,7 +385,7 @@ function App() {
               {status?.spicetifyFound && !status.spotifyFound && <p className="wizard-warning">Spicetify was found, but Spotify was not detected at a known path. Confirm Spotify's install type and path before applying changes.</p>}
             </div>
           </section>
-          <div className="marketplace-footnote">Safety note: Linux package installation and filesystem permissions vary by distro. SpiceDeck will not silently run sudo, change ownership, or overwrite an existing configuration. Existing installs are detected before recommending a new installation.</div>
+          <div className="marketplace-footnote">SpiceDeck selects an installer based on the OS and Linux distribution. System package installation may trigger the OS authorization prompt. The Spicetify CLI is installed in your user profile, and existing installations are checked before downloading.</div>
         </>}
 
         {section === "Marketplace" && <>
