@@ -21,11 +21,12 @@
 - [ ] Add backup metadata, integrity checks, and safe restore-point selection
 
 ## Marketplace and releases
-- [ ] Browse official Marketplace catalogs with clear source attribution
-- [ ] Install/update/remove themes, extensions, snippets, and custom apps
+- [x] Browse community repositories by Spicetify GitHub topic with source links, search, stars, and update dates (v0.3.0 in progress)
+- [ ] Read and validate Marketplace manifests before showing install actions
+- [ ] Install/update/remove themes, extensions, snippets, and custom apps with path-safe file handling
 - [ ] Preview theme colors from actual color.ini values
 - [ ] Add an installation wizard using official Spicetify guidance
-- [ ] Add update checks and signed release builds for Windows, macOS, and Linux
+- [x] Add update checks and signed release builds for Windows, macOS, and Linux (v0.2.1)
 - [ ] Accessibility review and light/dark theme preference
 
 ## Design constraints
