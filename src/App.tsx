@@ -7,7 +7,7 @@ import {
   Activity, Archive, ArrowDownToLine, ArrowUpRight, Check, ChevronRight, CircleHelp,
   Command, Download, ExternalLink, FileCog, FolderOpen, Gauge, Heart, Layers3, Save, ToggleLeft, ToggleRight, FileDown,
   LayoutDashboard, LoaderCircle, Palette, Play, RefreshCw, RotateCcw, Search,
-  Settings2, ShieldCheck, Sparkles, Terminal, WandSparkles, X, Globe, Star, Clock3
+  Settings2, ShieldCheck, Sparkles, Terminal, WandSparkles, X, Globe, Star, Clock3, Copy, MonitorDown
 } from "lucide-react";
 
 type Status = { platform: string; spicetifyFound: boolean; version: string | null; spotifyFound: boolean; configPath: string | null };
@@ -16,13 +16,14 @@ type Customization = { name: string; kind: string; path: string; enabled: boolea
 type Inventory = { themes: Customization[]; extensions: Customization[]; customApps: Customization[]; colorSchemes: string[]; currentTheme: string; currentColorScheme: string; enabledExtensions: string[]; enabledCustomApps: string[]; directories: string[]; scanDiagnostics: string[] };
 type BackupEntry = { name: string; path: string; size: number; modified: number | null; isDirectory: boolean };
 
-type Section = "Overview" | "Marketplace" | "Themes" | "Extensions" | "Custom Apps" | "Color Schemes" | "Configuration" | "Backups" | "Logs";
+type Section = "Overview" | "Setup" | "Marketplace" | "Themes" | "Extensions" | "Custom Apps" | "Color Schemes" | "Configuration" | "Backups" | "Logs";
 
 type MarketplaceCategory = "Themes" | "Extensions" | "Custom Apps";
 type MarketplaceRepo = { id: number; full_name: string; description: string | null; html_url: string; stargazers_count: number; default_branch: string; pushed_at: string; language: string | null; archived: boolean };
 
 const navigation: { name: Section; icon: typeof LayoutDashboard; note?: string }[] = [
   { name: "Overview", icon: LayoutDashboard },
+  { name: "Setup", icon: MonitorDown, note: "START" },
   { name: "Marketplace", icon: Globe, note: "NEW" },
   { name: "Themes", icon: Palette },
   { name: "Extensions", icon: Layers3 },
@@ -64,6 +65,7 @@ function App() {
   const [marketplaceError, setMarketplaceError] = useState("");
   const [marketplaceLoadedCategory, setMarketplaceLoadedCategory] = useState<MarketplaceCategory | "">("");
   const [marketplaceQuery, setMarketplaceQuery] = useState("");
+  const [setupCopied, setSetupCopied] = useState(false);
 
   const addLog = useCallback((text: string, kind = "info") => {
     setLogs(current => [{ time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), text, kind }, ...current].slice(0, 80));
@@ -270,6 +272,22 @@ function App() {
 
   const filteredLogs = useMemo(() => logs.filter(item => item.text.toLowerCase().includes(query.toLowerCase())), [logs, query]);
 
+  const spicetifyInstallCommand = status?.platform === "Windows"
+    ? "iwr -useb https://spicetify.co/install | iex"
+    : "curl -fsSL https://spicetify.co/install.sh | sh";
+
+  const copySpicetifyInstallCommand = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(spicetifyInstallCommand);
+      setSetupCopied(true);
+      addLog("Copied the official Spicetify CLI install command", "success");
+      window.setTimeout(() => setSetupCopied(false), 1800);
+    } catch (error) {
+      setNotice("Could not access the clipboard. Select and copy the command manually.");
+      addLog("Clipboard copy failed: " + String(error), "warning");
+    }
+  }, [spicetifyInstallCommand, addLog]);
+
   const runLabel = (action: string) => busyAction === action ? "Working…" : ({ apply: "Apply changes", backup: "Create backup", restore: "Restore Spotify", config: "Read configuration" } as Record<string, string>)[action] ?? action;
 
   return <div className="app-shell">
@@ -323,6 +341,44 @@ function App() {
           </div>
           {result && <section className="panel output-panel"><div className="panel-heading"><div><h2>Last command</h2><p><code>{result.command}</code></p></div><span className={`tag ${result.success ? "tag-good" : "tag-bad"}`}>{result.success ? "Success" : `Exit ${result.code ?? "error"}`}</span></div><pre>{[result.stdout, result.stderr].filter(Boolean).join("\n") || "Command completed without output."}</pre></section>}
           <footer className="footer"><span><Heart size={12}/> Open source, built for customization.</span><span>SpiceDeck is independent and not affiliated with Spotify or Spicetify.</span></footer>
+        </>}
+
+        {section === "Setup" && <>
+          <div className="page-heading compact"><div><div className="eyebrow"><span className="eyebrow-line"/> FIRST-RUN ASSISTANT</div><h1>Get set up<span>.</span></h1><p>Install Spotify, install Spicetify, then let SpiceDeck verify the setup.</p></div><button className="button button-secondary" onClick={() => void refreshStatus()} disabled={loading}><RefreshCw size={14} className={loading ? "spin" : ""}/> Recheck setup</button></div>
+          <div className="setup-wizard-progress">
+            <div className={status?.spotifyFound ? "wizard-progress-step complete" : "wizard-progress-step current"}><span>{status?.spotifyFound ? <Check size={14}/> : "1"}</span><div><strong>Spotify</strong><small>{status?.spotifyFound ? "Detected" : "Install the desktop app"}</small></div></div>
+            <div className="wizard-progress-connector"/>
+            <div className={status?.spicetifyFound ? "wizard-progress-step complete" : !status?.spotifyFound ? "wizard-progress-step" : "wizard-progress-step current"}><span>{status?.spicetifyFound ? <Check size={14}/> : "2"}</span><div><strong>Spicetify CLI</strong><small>{status?.spicetifyFound ? "Detected" : "Install the official CLI"}</small></div></div>
+            <div className="wizard-progress-connector"/>
+            <div className={status?.spotifyFound && status?.spicetifyFound ? "wizard-progress-step current" : "wizard-progress-step"}><span>3</span><div><strong>Verify</strong><small>Log in and refresh status</small></div></div>
+          </div>
+          {!status?.spotifyFound && <section className="panel wizard-card">
+            <div className="wizard-card-icon spotify"><Activity size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 1</div><h2>Install Spotify</h2><p>Use Spotify's official desktop download. The installer is downloaded by Spotify's website and installed using the normal platform flow. SpiceDeck won't run installers silently or request administrator access behind your back.</p>
+              {status?.platform === "Windows" && <button className="button button-primary" onClick={() => window.open("https://www.spotify.com/us/download/windows/", "_blank", "noopener,noreferrer")}><Download size={15}/> Download Spotify for Windows <ExternalLink size={13}/></button>}
+              {status?.platform === "macOS" && <button className="button button-primary" onClick={() => window.open("https://www.spotify.com/us/download/mac/", "_blank", "noopener,noreferrer")}><Download size={15}/> Download Spotify for macOS <ExternalLink size={13}/></button>}
+              {status?.platform === "Linux" && <div className="wizard-platform-note"><strong>Linux installation depends on your distribution.</strong><p>Spicetify documents supported install layouts and package-manager routes. Choose the method for your distro; avoid Snap because its Spotify package cannot be modified by Spicetify.</p><button className="button button-primary" onClick={() => window.open("https://spicetify.co/docs/getting-started/", "_blank", "noopener,noreferrer")}><Terminal size={15}/> Open Linux installation guidance <ExternalLink size={13}/></button></div>}
+              {!status?.platform && <p>Detecting your operating system…</p>}
+              <div className="wizard-footnote">After installing, launch Spotify and sign in. Spicetify recommends leaving it open for at least 60 seconds so it can generate the files it needs.</div>
+            </div>
+          </section>}
+          {status?.spotifyFound && <section className="panel wizard-card wizard-card-done"><div className="wizard-card-icon"><Check size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 1 COMPLETE</div><h2>Spotify detected</h2><p>SpiceDeck found a Spotify installation. It will still check compatibility before applying any modifications.</p></div></section>}
+          {!status?.spicetifyFound && <section className="panel wizard-card">
+            <div className="wizard-card-icon cli"><Terminal size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 2</div><h2>Install Spicetify CLI</h2><p>Use the official installer for this platform. The command is shown before you run it, and SpiceDeck does not execute a downloaded script automatically.</p>
+              <div className="wizard-command"><code>{spicetifyInstallCommand}</code><button className="button button-secondary" onClick={() => void copySpicetifyInstallCommand()}><Copy size={14}/>{setupCopied ? "Copied" : "Copy command"}</button></div>
+              {status?.platform === "Windows" && <p className="wizard-footnote">Run this in PowerShell as your normal user. If you prefer a package manager, the official guide also documents WinGet, Scoop, and Chocolatey.</p>}
+              {(status?.platform === "Linux" || status?.platform === "macOS") && <p className="wizard-footnote">Run this in your terminal as your normal user. Linux users can also use Homebrew, AUR, or the documented Nix integration where appropriate.</p>}
+              <button className="text-button wizard-doc-link" onClick={() => window.open("https://spicetify.co/docs/getting-started/", "_blank", "noopener,noreferrer")}>Read the official Spicetify guide <ExternalLink size={13}/></button>
+            </div>
+          </section>}
+          {status?.spicetifyFound && <section className="panel wizard-card wizard-card-done"><div className="wizard-card-icon"><Check size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 2 COMPLETE</div><h2>Spicetify CLI detected</h2><p>Version {status.version ?? "detected"}. SpiceDeck can now use its existing maintenance and customization features.</p></div></section>}
+          <section className="panel wizard-card">
+            <div className="wizard-card-icon verify"><ShieldCheck size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 3</div><h2>Verify and continue</h2><p>Once Spotify and Spicetify are installed, launch Spotify, sign in, and leave it open for at least 60 seconds. Then refresh the status check.</p>
+              <div className="wizard-checklist"><span className={status?.spotifyFound ? "checklist-item done" : "checklist-item"}>{status?.spotifyFound ? <Check size={14}/> : <span/>} Spotify detected</span><span className={status?.spicetifyFound ? "checklist-item done" : "checklist-item"}>{status?.spicetifyFound ? <Check size={14}/> : <span/>} Spicetify CLI detected</span></div>
+              <div className="wizard-actions"><button className="button button-secondary" onClick={() => void refreshStatus()} disabled={loading}><RefreshCw size={14} className={loading ? "spin" : ""}/> Recheck status</button><button className="button button-primary" onClick={() => setSection(status?.spicetifyFound ? "Marketplace" : "Overview")} disabled={!status?.spicetifyFound}><Check size={14}/> Continue to SpiceDeck</button></div>
+              {status?.spicetifyFound && !status.spotifyFound && <p className="wizard-warning">Spicetify was found, but Spotify was not detected at a known path. Confirm Spotify's install type and path before applying changes.</p>}
+            </div>
+          </section>
+          <div className="marketplace-footnote">Safety note: Linux package installation and filesystem permissions vary by distro. SpiceDeck will not silently run sudo, change ownership, or overwrite an existing configuration. Existing installs are detected before recommending a new installation.</div>
         </>}
 
         {section === "Marketplace" && <>
