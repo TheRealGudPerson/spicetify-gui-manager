@@ -65,7 +65,7 @@ function App() {
   const [marketplaceError, setMarketplaceError] = useState("");
   const [marketplaceLoadedCategory, setMarketplaceLoadedCategory] = useState<MarketplaceCategory | "">("");
   const [marketplaceQuery, setMarketplaceQuery] = useState("");
-  const [setupCopied, setSetupCopied] = useState(false);
+  const [installerBusy, setInstallerBusy] = useState("");
 
   const addLog = useCallback((text: string, kind = "info") => {
     setLogs(current => [{ time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), text, kind }, ...current].slice(0, 80));
@@ -163,6 +163,29 @@ function App() {
     }
   }, [addLog, refreshStatus]);
 
+
+  const installSoftware = useCallback(async (target: "spotify" | "spicetify") => {
+    if (installerBusy) return;
+    setInstallerBusy(target);
+    setNotice("");
+    setResult(null);
+    addLog(target === "spotify" ? "Starting OS-aware Spotify installation" : "Downloading the official Spicetify CLI release", "info");
+    try {
+      const response = await invoke<CommandResult>("install_software", { target });
+      setResult(response);
+      addLog(response.command, "command");
+      if (response.stdout.trim()) addLog(response.stdout.trim().slice(-1200), "output");
+      if (response.stderr.trim()) addLog(response.stderr.trim().slice(-1200), response.success ? "warning" : "error");
+      addLog(response.success ? (target === "spotify" ? "Spotify installation completed" : "Spicetify installation completed") : "Installation failed", response.success ? "success" : "error");
+      if (!response.success) setNotice(response.stderr || response.stdout || "The installer did not report success.");
+      await refreshStatus();
+    } catch (error) {
+      setNotice(String(error));
+      addLog("Installation failed: " + String(error), "error");
+    } finally {
+      setInstallerBusy("");
+    }
+  }, [installerBusy, addLog, refreshStatus]);
 
   const refreshMarketplace = useCallback(async (category: MarketplaceCategory) => {
     setMarketplaceLoading(true);
@@ -272,22 +295,6 @@ function App() {
 
   const filteredLogs = useMemo(() => logs.filter(item => item.text.toLowerCase().includes(query.toLowerCase())), [logs, query]);
 
-  const spicetifyInstallCommand = status?.platform === "Windows"
-    ? "iwr -useb https://spicetify.co/install | iex"
-    : "curl -fsSL https://spicetify.co/install.sh | sh";
-
-  const copySpicetifyInstallCommand = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(spicetifyInstallCommand);
-      setSetupCopied(true);
-      addLog("Copied the official Spicetify CLI install command", "success");
-      window.setTimeout(() => setSetupCopied(false), 1800);
-    } catch (error) {
-      setNotice("Could not access the clipboard. Select and copy the command manually.");
-      addLog("Clipboard copy failed: " + String(error), "warning");
-    }
-  }, [spicetifyInstallCommand, addLog]);
-
   const runLabel = (action: string) => busyAction === action ? "Working…" : ({ apply: "Apply changes", backup: "Create backup", restore: "Restore Spotify", config: "Read configuration" } as Record<string, string>)[action] ?? action;
 
   return <div className="app-shell">
@@ -354,17 +361,17 @@ function App() {
           </div>
           {!status?.spotifyFound && <section className="panel wizard-card">
             <div className="wizard-card-icon spotify"><Activity size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 1</div><h2>Install Spotify</h2><p>Download the installer directly from Spotify's official download CDN, then run it using your platform's normal installation flow. SpiceDeck won't run installers silently or request administrator access behind your back.</p>
-              {status?.platform === "Windows" && <button className="button button-primary" onClick={() => window.open("https://download.scdn.co/SpotifySetup.exe", "_blank", "noopener,noreferrer")}><Download size={15}/> Download Spotify for Windows <ExternalLink size={13}/></button>}
-              {status?.platform === "macOS" && <button className="button button-primary" onClick={() => window.open("https://download.scdn.co/Spotify.dmg", "_blank", "noopener,noreferrer")}><Download size={15}/> Download Spotify for macOS <ExternalLink size={13}/></button>}
-              {status?.platform === "Linux" && <div className="wizard-platform-note"><strong>Linux installation depends on your distribution.</strong><p>Spicetify documents supported install layouts and package-manager routes. Choose the method for your distro; avoid Snap because its Spotify package cannot be modified by Spicetify.</p><button className="button button-primary" onClick={() => window.open("https://spicetify.co/docs/getting-started/", "_blank", "noopener,noreferrer")}><Terminal size={15}/> Open Linux installation guidance <ExternalLink size={13}/></button></div>}
+              {status?.platform === "Windows" && <button className="button button-primary" onClick={() => void installSoftware("spotify")} disabled={!!installerBusy}><Download size={15}/> {installerBusy === "spotify" ? "Downloading and installing…" : "Download and install Spotify"}</button>}
+              {status?.platform === "macOS" && <button className="button button-primary" onClick={() => void installSoftware("spotify")} disabled={!!installerBusy}><Download size={15}/> {installerBusy === "spotify" ? "Downloading and installing…" : "Download and install Spotify"}</button>}
+              {status?.platform === "Linux" && <div className="wizard-platform-note"><strong>Linux installation depends on your distribution.</strong><p>Spicetify documents supported install layouts and package-manager routes. Choose the method for your distro; avoid Snap because its Spotify package cannot be modified by Spicetify.</p><button className="button button-primary" onClick={() => void installSoftware("spotify")} disabled={!!installerBusy}><Download size={15}/> Install Spotify automatically <ExternalLink size={13}/></button></div>}
               {!status?.platform && <p>Detecting your operating system…</p>}
               <div className="wizard-footnote">After installing, launch Spotify and sign in. Spicetify recommends leaving it open for at least 60 seconds so it can generate the files it needs.</div>
             </div>
           </section>}
           {status?.spotifyFound && <section className="panel wizard-card wizard-card-done"><div className="wizard-card-icon"><Check size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 1 COMPLETE</div><h2>Spotify detected</h2><p>SpiceDeck found a Spotify installation. It will still check compatibility before applying any modifications.</p></div></section>}
           {!status?.spicetifyFound && <section className="panel wizard-card">
-            <div className="wizard-card-icon cli"><Terminal size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 2</div><h2>Install Spicetify CLI</h2><p>Use the official installer for this platform. The command is shown before you run it, and SpiceDeck does not execute a downloaded script automatically.</p>
-              <div className="wizard-command"><code>{spicetifyInstallCommand}</code><button className="button button-secondary" onClick={() => void copySpicetifyInstallCommand()}><Copy size={14}/>{setupCopied ? "Copied" : "Copy command"}</button></div>
+            <div className="wizard-card-icon cli"><Terminal size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 2</div><h2>Install Spicetify CLI</h2><p>SpiceDeck downloads the latest stable CLI release directly from the official Spicetify GitHub releases, selects the correct OS and CPU build, installs it in your user profile, and verifies the executable.</p>
+<button className="button button-primary" onClick={() => void installSoftware("spicetify")} disabled={!!installerBusy}><Download size={15}/>{installerBusy === "spicetify" ? "Downloading and installing…" : "Install Spicetify automatically"}</button>
               {status?.platform === "Windows" && <p className="wizard-footnote">Run this in PowerShell as your normal user. If you prefer a package manager, the official guide also documents WinGet, Scoop, and Chocolatey.</p>}
               {(status?.platform === "Linux" || status?.platform === "macOS") && <p className="wizard-footnote">Run this in your terminal as your normal user. Linux users can also use Homebrew, AUR, or the documented Nix integration where appropriate.</p>}
               <button className="text-button wizard-doc-link" onClick={() => window.open("https://spicetify.co/docs/getting-started/", "_blank", "noopener,noreferrer")}>Read the official Spicetify guide <ExternalLink size={13}/></button>
