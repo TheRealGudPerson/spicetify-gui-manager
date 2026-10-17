@@ -671,7 +671,8 @@ fn run_action(action: String) -> Result<CommandResult, String> {
         "backup" => vec!["backup"],
         "restore" => vec!["restore"],
         "config" => vec!["config"],
-        _ => return Err("Unsupported action. Only apply, backup, restore, and config are allowed.".into()),
+        "setup" => vec!["backup", "apply"],
+        _ => return Err("Unsupported action. Only setup, apply, backup, restore, and config are allowed.".into()),
     };
     let command_display = format!("spicetify {}", args.join(" "));
     let output = execute(&args)?;
