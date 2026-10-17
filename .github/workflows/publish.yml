@@ -49,6 +49,11 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      - name: Generate platform icons
+        run: |
+          node -e "require('node:fs').mkdirSync('src-tauri/icons/generated', { recursive: true })"
+          npm run tauri -- icon src-tauri/icons/icon.png --output src-tauri/icons/generated
+
       - name: Build and publish signed update
         uses: tauri-apps/tauri-action@v1
         env:
