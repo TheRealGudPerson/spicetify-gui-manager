@@ -1,6 +1,6 @@
 [package]
 name = "spicedeck"
-version = "0.2.0"
+version = "0.2.1"
 description = "A cross-platform GUI manager for Spicetify"
 authors = ["SpiceDeck contributors"]
 edition = "2021"
