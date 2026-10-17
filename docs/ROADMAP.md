@@ -25,7 +25,8 @@
 - [ ] Read and validate Marketplace manifests before showing install actions
 - [ ] Install/update/remove themes, extensions, snippets, and custom apps with path-safe file handling
 - [ ] Preview theme colors from actual color.ini values
-- [ ] Add an installation wizard using official Spicetify guidance
+- [x] Add a first-run setup wizard with platform-aware Spotify download links, official Spicetify CLI commands, and status verification (v0.3.0 in progress)
+- [ ] Add direct installer download/launch workflows and distro-aware Linux package installation, with explicit confirmation and no silent privilege escalation
 - [x] Add update checks and signed release builds for Windows, macOS, and Linux (v0.2.1)
 - [ ] Accessibility review and light/dark theme preference
 
