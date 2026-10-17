@@ -7,7 +7,7 @@ import {
   Activity, Archive, ArrowDownToLine, ArrowUpRight, Check, ChevronRight, CircleHelp,
   Command, Download, ExternalLink, FileCog, FolderOpen, Gauge, Heart, Layers3, Save, ToggleLeft, ToggleRight, FileDown,
   LayoutDashboard, LoaderCircle, Palette, Play, RefreshCw, RotateCcw, Search,
-  Settings2, ShieldCheck, Sparkles, Terminal, WandSparkles, X, Globe, Star, Clock3, Copy, MonitorDown
+  Settings2, ShieldCheck, Sparkles, Terminal, WandSparkles, X, Globe, Star, Clock3, MonitorDown
 } from "lucide-react";
 
 type Status = { platform: string; spicetifyFound: boolean; version: string | null; spotifyFound: boolean; configPath: string | null };
@@ -352,6 +352,7 @@ function App() {
 
         {section === "Setup" && <>
           <div className="page-heading compact"><div><div className="eyebrow"><span className="eyebrow-line"/> FIRST-RUN ASSISTANT</div><h1>Get set up<span>.</span></h1><p>Install Spotify, install Spicetify, then let SpiceDeck verify the setup.</p></div><button className="button button-secondary" onClick={() => void refreshStatus()} disabled={loading}><RefreshCw size={14} className={loading ? "spin" : ""}/> Recheck setup</button></div>
+          {notice && <div className="notice"><X size={16}/><span>{notice}</span><button onClick={() => setNotice("")}><X size={14}/></button></div>}
           <div className="setup-wizard-progress">
             <div className={status?.spotifyFound ? "wizard-progress-step complete" : "wizard-progress-step current"}><span>{status?.spotifyFound ? <Check size={14}/> : "1"}</span><div><strong>Spotify</strong><small>{status?.spotifyFound ? "Detected" : "Install the desktop app"}</small></div></div>
             <div className="wizard-progress-connector"/>
