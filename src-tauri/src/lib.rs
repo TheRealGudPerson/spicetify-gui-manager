@@ -3,7 +3,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::{Command, Output},
-    time::UNIX_EPOCH,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 #[derive(Serialize)]
@@ -59,8 +59,19 @@ struct BackupEntry {
     is_directory: bool,
 }
 
-fn spicetify_executable() -> &'static str {
-    if cfg!(windows) { "spicetify.exe" } else { "spicetify" }
+fn spicetify_executable() -> PathBuf {
+    let executable = if cfg!(windows) { "spicetify.exe" } else { "spicetify" };
+    let mut candidates = Vec::new();
+    if let Ok(home) = std::env::var("HOME") {
+        candidates.push(PathBuf::from(&home).join(".spicetify").join(executable));
+        candidates.push(PathBuf::from(&home).join(".local").join("bin").join(executable));
+    }
+    if cfg!(windows) {
+        if let Ok(local) = std::env::var("LOCALAPPDATA") {
+            candidates.push(PathBuf::from(local).join("spicetify").join(executable));
+        }
+    }
+    candidates.into_iter().find(|path| path.is_file()).unwrap_or_else(|| PathBuf::from(executable))
 }
 
 fn execute(args: &[&str]) -> Result<Output, String> {
@@ -201,6 +212,205 @@ fn config_directory() -> Option<PathBuf> {
     }
 
     cli_path("userdata").filter(|path| path.is_dir())
+}
+
+
+fn install_temp_dir() -> Result<PathBuf, String> {
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis();
+    let path = std::env::temp_dir().join(format!("spicedeck-install-{stamp}"));
+    fs::create_dir_all(&path).map_err(|error| format!("Could not create temporary install directory: {error}"))?;
+    Ok(path)
+}
+
+fn run_checked(command: &mut Command, label: &str) -> Result<Output, String> {
+    let output = command.output().map_err(|error| format!("Could not start {label}: {error}"))?;
+    if !output.status.success() {
+        let stderr = output_text(&output.stderr);
+        return Err(format!("{label} failed (exit {}). {}",
+            output.status.code().map(|code| code.to_string()).unwrap_or_else(|| "unknown".into()), stderr));
+    }
+    Ok(output)
+}
+
+fn download_file(url: &str, destination: &Path) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut cmd = Command::new("curl.exe");
+        cmd.args(["--fail", "--location", "--silent", "--show-error", url, "--output"]).arg(destination);
+        cmd
+    };
+    #[cfg(not(target_os = "windows"))]
+    let mut command = {
+        let mut cmd = Command::new("curl");
+        cmd.args(["--fail", "--location", "--silent", "--show-error", url, "--output"]).arg(destination);
+        cmd
+    };
+    run_checked(&mut command, "Official download")?;
+    if !destination.is_file() || fs::metadata(destination).map(|metadata| metadata.len()).unwrap_or(0) == 0 {
+        return Err("The official download completed without producing a usable file.".into());
+    }
+    Ok(())
+}
+
+fn command_available(program: &str) -> bool {
+    #[cfg(target_os = "windows")]
+    let checker = "where.exe";
+    #[cfg(not(target_os = "windows"))]
+    let checker = "which";
+    Command::new(checker).arg(program).output().map(|output| output.status.success()).unwrap_or(false)
+}
+
+fn linux_distribution() -> (String, String) {
+    let contents = fs::read_to_string("/etc/os-release").unwrap_or_default();
+    let mut id = String::new();
+    let mut like = String::new();
+    for line in contents.lines() {
+        if let Some(value) = line.strip_prefix("ID=") { id = value.trim_matches('"').to_lowercase(); }
+        if let Some(value) = line.strip_prefix("ID_LIKE=") { like = value.trim_matches('"').to_lowercase(); }
+    }
+    (id, like)
+}
+
+#[tauri::command]
+fn install_software(target: String) -> Result<CommandResult, String> {
+    match target.as_str() {
+        "spotify" => install_spotify(),
+        "spicetify" => install_spicetify(),
+        _ => Err("Unsupported installer target. Choose Spotify or Spicetify.".into()),
+    }
+}
+
+fn install_spotify() -> Result<CommandResult, String> {
+    if detect_spotify() {
+        return Err("Spotify is already detected. Refresh status before attempting another installation.".into());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let temp = install_temp_dir()?;
+        let installer = temp.join("SpotifySetup.exe");
+        download_file("https://download.scdn.co/SpotifySetup.exe", &installer)?;
+        let output = run_checked(Command::new(&installer).arg("/silent"), "Spotify installer")?;
+        let _ = fs::remove_dir_all(&temp);
+        if !detect_spotify() {
+            return Err("Spotify's installer exited, but SpiceDeck could not detect Spotify afterward. Refresh status and check the installer.".into());
+        }
+        return Ok(CommandResult { success: true, command: "Download and install Spotify for Windows".into(), code: output.status.code(), stdout: output_text(&output.stdout), stderr: output_text(&output.stderr) });
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let temp = install_temp_dir()?;
+        let image = temp.join("Spotify.dmg");
+        let mount = temp.join("mounted");
+        fs::create_dir_all(&mount).map_err(|error| error.to_string())?;
+        download_file("https://download.scdn.co/Spotify.dmg", &image)?;
+        run_checked(Command::new("hdiutil").args(["attach", "-nobrowse", "-readonly", "-mountpoint"]).arg(&mount).arg(&image), "Mount Spotify disk image")?;
+        let home = std::env::var("HOME").map_err(|_| "Could not locate the user's home directory.".to_string())?;
+        let applications = PathBuf::from(home).join("Applications");
+        fs::create_dir_all(&applications).map_err(|error| error.to_string())?;
+        let source = mount.join("Spotify.app");
+        let destination = applications.join("Spotify.app");
+        let copy_result = if source.is_dir() {
+            run_checked(Command::new("ditto").arg("-rsrc").arg("-extattr").arg(&source).arg(&destination), "Copy Spotify into the user Applications folder")
+        } else { Err("The downloaded disk image did not contain Spotify.app in the expected location.".into()) };
+        let detach_result = run_checked(Command::new("hdiutil").args(["detach", "-force"]).arg(&mount), "Unmount Spotify disk image");
+        let _ = fs::remove_dir_all(&temp);
+        copy_result?;
+        detach_result?;
+        if !destination.exists() { return Err("Spotify was copied but its application bundle could not be verified.".into()); }
+        return Ok(CommandResult { success: true, command: "Download and install Spotify for macOS".into(), code: Some(0), stdout: format!("Installed to {}", destination.display()), stderr: String::new() });
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let (id, like) = linux_distribution();
+        let debian_based = ["debian", "ubuntu", "linuxmint", "pop", "elementary", "kali", "zorin"].contains(&id.as_str())
+            || like.split_whitespace().any(|value| value == "debian" || value == "ubuntu");
+        if debian_based && command_available("apt-get") && command_available("pkexec") && command_available("gpg") {
+            let temp = install_temp_dir()?;
+            let key_download = temp.join("spotify-key.gpg");
+            let keyring = temp.join("spotify-keyring.gpg");
+            download_file("https://download.spotify.com/debian/pubkey_C85668DF69375001.gpg", &key_download)?;
+            run_checked(Command::new("gpg").args(["--dearmor", "--yes", "--output"]).arg(&keyring).arg(&key_download), "Prepare Spotify repository signing key")?;
+            let script = "install -D -m 0644 \"$1\" /usr/share/keyrings/spotify.gpg && printf '%s\\n' 'deb http://repository.spotify.com stable non-free' > /etc/apt/sources.list.d/spotify.list && apt-get update && apt-get install -y spotify-client";
+            let output = run_checked(Command::new("pkexec").arg("/bin/sh").arg("-c").arg(script).arg("spicedeck-install").arg(&keyring), "Install Spotify from its official APT repository; the operating system may request authorization")?;
+            let _ = fs::remove_dir_all(&temp);
+            if !detect_spotify() { return Err("The package manager reported success, but Spotify was not detected afterward. Refresh status.".into()); }
+            return Ok(CommandResult { success: true, command: "Install Spotify from the official Spotify APT repository".into(), code: output.status.code(), stdout: output_text(&output.stdout), stderr: output_text(&output.stderr) });
+        }
+        if command_available("flatpak") {
+            let remotes = Command::new("flatpak").args(["remotes", "--user", "--columns=name"]).output().ok().map(|output| output_text(&output.stdout)).unwrap_or_default();
+            if !remotes.lines().any(|line| line.trim() == "flathub") {
+                run_checked(Command::new("flatpak").args(["remote-add", "--user", "--if-not-exists", "flathub", "https://flathub.org/repo/flathub.flatpakrepo"]), "Add the Flathub user repository")?;
+            }
+            let output = run_checked(Command::new("flatpak").args(["install", "--user", "--noninteractive", "-y", "flathub", "com.spotify.Client"]), "Install Spotify from Flathub")?;
+            if !detect_spotify() { return Err("Flatpak reported success, but Spotify was not detected afterward. Refresh status.".into()); }
+            return Ok(CommandResult { success: true, command: "Install Spotify using the Flathub Flatpak package".into(), code: output.status.code(), stdout: output_text(&output.stdout), stderr: output_text(&output.stderr) });
+        }
+        Err(format!("Automatic Spotify installation is not yet supported for Linux distribution '{id}' (ID_LIKE='{like}'). SpiceDeck supports the official Spotify APT repository on Debian/Ubuntu-based systems and a user-scoped Flathub install where Flatpak is available."))
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    { Err("Automatic Spotify installation is not supported on this operating system.".into()) }
+}
+
+fn install_spicetify() -> Result<CommandResult, String> {
+    if execute(&["--version"]).map(|output| output.status.success()).unwrap_or(false) {
+        return Err("Spicetify is already detected. Refresh status before attempting another installation.".into());
+    }
+    let temp = install_temp_dir()?;
+    let release_json = temp.join("latest-release.json");
+    download_file("https://api.github.com/repos/spicetify/cli/releases/latest", &release_json)?;
+    let release: serde_json::Value = serde_json::from_slice(&fs::read(&release_json).map_err(|error| error.to_string())?)
+        .map_err(|error| format!("Could not read Spicetify's official release metadata: {error}"))?;
+    let tag = release.get("tag_name").and_then(|value| value.as_str()).ok_or_else(|| "Spicetify release metadata did not include a version tag.".to_string())?;
+    let version = tag.strip_prefix('v').unwrap_or(tag);
+    if version.is_empty() || !version.chars().all(|character| character.is_ascii_alphanumeric() || character == '.' || character == '-') {
+        return Err("Spicetify's release metadata contained an invalid version tag.".into());
+    }
+
+    #[cfg(target_os = "windows")]
+    let (asset, archive_name) = {
+        let arch = if cfg!(target_arch = "aarch64") { "arm64" } else if cfg!(target_arch = "x86") { "x32" } else { "x64" };
+        (format!("spicetify-{version}-windows-{arch}.zip"), "spicetify.zip")
+    };
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    let (asset, archive_name) = {
+        let os = if cfg!(target_os = "macos") { "darwin" } else { "linux" };
+        let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "amd64" };
+        (format!("spicetify-{version}-{os}-{arch}.tar.gz"), "spicetify.tar.gz")
+    };
+
+    let archive = temp.join(archive_name);
+    download_file(&format!("https://github.com/spicetify/cli/releases/download/v{version}/{asset}"), &archive)?;
+    let home = std::env::var(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map_err(|_| "Could not locate the user's home directory.".to_string())?;
+    let install_dir = if cfg!(windows) {
+        PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_else(|_| home.clone())).join("spicetify")
+    } else { PathBuf::from(&home).join(".spicetify") };
+    fs::create_dir_all(&install_dir).map_err(|error| error.to_string())?;
+
+    #[cfg(target_os = "windows")]
+    {
+        let script = r#"Add-Type -AssemblyName System.IO.Compression.FileSystem; $zip=[IO.Compression.ZipFile]::OpenRead($args[0]); try { $entry=$zip.Entries | Where-Object { $_.FullName -eq 'spicetify.exe' } | Select-Object -First 1; if (-not $entry) { throw 'Archive did not contain spicetify.exe' }; $out=[IO.File]::Open($args[1],[IO.FileMode]::Create,[IO.FileAccess]::Write); try { $stream=$entry.Open(); try { $stream.CopyTo($out) } finally { $stream.Dispose() } } finally { $out.Dispose() } } finally { $zip.Dispose() }"#;
+        run_checked(Command::new("powershell.exe").args(["-NoProfile", "-NonInteractive", "-Command", script]).arg(&archive).arg(install_dir.join("spicetify.exe")), "Extract official Spicetify executable")?;
+    }
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        run_checked(Command::new("tar").arg("-xzf").arg(&archive).arg("-C").arg(&install_dir).arg("spicetify"), "Extract official Spicetify executable")?;
+        use std::os::unix::fs::PermissionsExt;
+        let executable = install_dir.join("spicetify");
+        let mut permissions = fs::metadata(&executable).map_err(|error| error.to_string())?.permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&executable, permissions).map_err(|error| error.to_string())?;
+    }
+
+    let _ = fs::remove_dir_all(&temp);
+    let executable = if cfg!(windows) { install_dir.join("spicetify.exe") } else { install_dir.join("spicetify") };
+    if !executable.is_file() { return Err(format!("The installer finished but {} was not found.", executable.display())); }
+    let output = Command::new(&executable).arg("--version").output().map_err(|error| format!("Spicetify was downloaded but could not be launched: {error}"))?;
+    if !output.status.success() { return Err(format!("Spicetify was downloaded but its version check failed: {}", output_text(&output.stderr))); }
+    Ok(CommandResult { success: true, command: format!("Download and install official Spicetify CLI {version}"), code: output.status.code(), stdout: format!("Installed Spicetify {} to {}", output_text(&output.stdout), executable.display()), stderr: output_text(&output.stderr) })
 }
 
 #[tauri::command]
@@ -461,7 +671,8 @@ fn run_action(action: String) -> Result<CommandResult, String> {
         "backup" => vec!["backup"],
         "restore" => vec!["restore"],
         "config" => vec!["config"],
-        _ => return Err("Unsupported action. Only apply, backup, restore, and config are allowed.".into()),
+        "setup" => vec!["backup", "apply"],
+        _ => return Err("Unsupported action. Only setup, apply, backup, restore, and config are allowed.".into()),
     };
     let command_display = format!("spicetify {}", args.join(" "));
     let output = execute(&args)?;
@@ -481,7 +692,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
-            get_status, run_action, get_customizations, get_backups, set_config_value
+            get_status, run_action, get_customizations, get_backups, set_config_value, install_software
         ])
         .run(tauri::generate_context!())
         .expect("error while running SpiceDeck");

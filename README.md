@@ -6,13 +6,15 @@ SpiceDeck is a cross-platform desktop GUI for managing a local Spicetify install
 - Detect Spicetify and report basic Spotify installation status.
 - Run explicit apply, backup, restore, and configuration-inspection actions.
 - Discover local themes, extensions, and custom apps.
+- First-run setup wizard with automatic Spotify and Spicetify downloads, OS-aware installation, post-install verification, and a confirmed initial backup/apply step.
+- Browse community repositories by Spicetify GitHub topic, with search, source links, stars, and update dates.
 - Select an installed theme and discover color-scheme sections from its `color.ini`.
 - Enable or disable discovered extensions and custom apps through Spicetify config.
 - Edit an allowlist of common configuration values.
 - View the local backup directory and export activity logs.
 - Show command output and errors rather than silently claiming success.
 
-Marketplace browsing and downloading/installing third-party customizations are not implemented yet. The local library views manage items already installed on the computer.
+The v0.3.0 setup wizard detects the current OS and installs Spotify and Spicetify from official sources where supported. Windows uses Spotify's hosted setup executable; macOS downloads Spotify's official DMG and installs into the current user's Applications folder; Debian/Ubuntu-based Linux installs from Spotify's official APT repository with the OS authorization prompt, while other Linux systems use a user-scoped Flathub install when Flatpak is available. Spicetify is downloaded from the official GitHub release for the current OS and CPU architecture and installed in the user profile. After the user launches Spotify and signs in, SpiceDeck can create a backup and run the initial `spicetify backup apply` action with explicit confirmation. Existing installations are checked before installation; unsupported Linux configurations return an actionable error instead of silently switching to an unknown package source. Marketplace browsing is being introduced in v0.3.0. The current discovery view is read-only; downloading, installing, updating, and removing third-party customizations remain in development. The local library views manage items already installed on the computer.
 
 ## Requirements
 - Node.js and npm

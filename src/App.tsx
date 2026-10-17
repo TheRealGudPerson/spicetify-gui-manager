@@ -7,7 +7,7 @@ import {
   Activity, Archive, ArrowDownToLine, ArrowUpRight, Check, ChevronRight, CircleHelp,
   Command, Download, ExternalLink, FileCog, FolderOpen, Gauge, Heart, Layers3, Save, ToggleLeft, ToggleRight, FileDown,
   LayoutDashboard, LoaderCircle, Palette, Play, RefreshCw, RotateCcw, Search,
-  Settings2, ShieldCheck, Sparkles, Terminal, WandSparkles, X
+  Settings2, ShieldCheck, Sparkles, Terminal, WandSparkles, X, Globe, Star, Clock3, MonitorDown
 } from "lucide-react";
 
 type Status = { platform: string; spicetifyFound: boolean; version: string | null; spotifyFound: boolean; configPath: string | null };
@@ -16,10 +16,15 @@ type Customization = { name: string; kind: string; path: string; enabled: boolea
 type Inventory = { themes: Customization[]; extensions: Customization[]; customApps: Customization[]; colorSchemes: string[]; currentTheme: string; currentColorScheme: string; enabledExtensions: string[]; enabledCustomApps: string[]; directories: string[]; scanDiagnostics: string[] };
 type BackupEntry = { name: string; path: string; size: number; modified: number | null; isDirectory: boolean };
 
-type Section = "Overview" | "Themes" | "Extensions" | "Custom Apps" | "Color Schemes" | "Configuration" | "Backups" | "Logs";
+type Section = "Overview" | "Setup" | "Marketplace" | "Themes" | "Extensions" | "Custom Apps" | "Color Schemes" | "Configuration" | "Backups" | "Logs";
+
+type MarketplaceCategory = "Themes" | "Extensions" | "Custom Apps";
+type MarketplaceRepo = { id: number; full_name: string; description: string | null; html_url: string; stargazers_count: number; default_branch: string; pushed_at: string; language: string | null; archived: boolean };
 
 const navigation: { name: Section; icon: typeof LayoutDashboard; note?: string }[] = [
   { name: "Overview", icon: LayoutDashboard },
+  { name: "Setup", icon: MonitorDown, note: "START" },
+  { name: "Marketplace", icon: Globe, note: "NEW" },
   { name: "Themes", icon: Palette },
   { name: "Extensions", icon: Layers3 },
   { name: "Custom Apps", icon: Sparkles },
@@ -54,6 +59,13 @@ function App() {
   const [updateBusy, setUpdateBusy] = useState(false);
   const [updateMessage, setUpdateMessage] = useState("");
   const [updateError, setUpdateError] = useState("");
+  const [marketplaceCategory, setMarketplaceCategory] = useState<MarketplaceCategory>("Themes");
+  const [marketplaceItems, setMarketplaceItems] = useState<MarketplaceRepo[]>([]);
+  const [marketplaceLoading, setMarketplaceLoading] = useState(false);
+  const [marketplaceError, setMarketplaceError] = useState("");
+  const [marketplaceLoadedCategory, setMarketplaceLoadedCategory] = useState<MarketplaceCategory | "">("");
+  const [marketplaceQuery, setMarketplaceQuery] = useState("");
+  const [installerBusy, setInstallerBusy] = useState("");
 
   const addLog = useCallback((text: string, kind = "info") => {
     setLogs(current => [{ time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), text, kind }, ...current].slice(0, 80));
@@ -142,7 +154,7 @@ function App() {
       if (response.stderr.trim()) addLog(response.stderr.trim().slice(-900), response.success ? "warning" : "error");
       addLog(response.success ? `${action} completed` : `${action} failed (exit ${response.code ?? "unknown"})`, response.success ? "success" : "error");
       if (action === "config") setConfigText(response.stdout || response.stderr);
-      if (action === "apply" || action === "backup" || action === "restore") await refreshStatus();
+      if (action === "apply" || action === "backup" || action === "restore" || action === "setup") await refreshStatus();
     } catch (error) {
       setNotice(String(error));
       addLog(String(error), "error");
@@ -151,6 +163,69 @@ function App() {
     }
   }, [addLog, refreshStatus]);
 
+
+  const installSoftware = useCallback(async (target: "spotify" | "spicetify") => {
+    if (installerBusy) return;
+    setInstallerBusy(target);
+    setNotice("");
+    setResult(null);
+    addLog(target === "spotify" ? "Starting OS-aware Spotify installation" : "Downloading the official Spicetify CLI release", "info");
+    try {
+      const response = await invoke<CommandResult>("install_software", { target });
+      setResult(response);
+      addLog(response.command, "command");
+      if (response.stdout.trim()) addLog(response.stdout.trim().slice(-1200), "output");
+      if (response.stderr.trim()) addLog(response.stderr.trim().slice(-1200), response.success ? "warning" : "error");
+      addLog(response.success ? (target === "spotify" ? "Spotify installation completed" : "Spicetify installation completed") : "Installation failed", response.success ? "success" : "error");
+      if (!response.success) setNotice(response.stderr || response.stdout || "The installer did not report success.");
+      await refreshStatus();
+    } catch (error) {
+      setNotice(String(error));
+      addLog("Installation failed: " + String(error), "error");
+    } finally {
+      setInstallerBusy("");
+    }
+  }, [installerBusy, addLog, refreshStatus]);
+
+  const refreshMarketplace = useCallback(async (category: MarketplaceCategory) => {
+    setMarketplaceLoading(true);
+    setMarketplaceError("");
+    try {
+      const topic = category === "Themes" ? "spicetify-themes" : category === "Extensions" ? "spicetify-extensions" : "spicetify-apps";
+      const cacheKey = "spicedeck-marketplace-" + topic;
+      const cached = sessionStorage.getItem(cacheKey);
+      let repos: MarketplaceRepo[] | null = null;
+      if (cached) {
+        try {
+          const entry = JSON.parse(cached) as { savedAt: number; items: MarketplaceRepo[] };
+          if (Date.now() - entry.savedAt < 10 * 60 * 1000 && Array.isArray(entry.items)) repos = entry.items;
+        } catch { sessionStorage.removeItem(cacheKey); }
+      }
+      if (!repos) {
+        const response = await fetch("https://api.github.com/search/repositories?q=" + encodeURIComponent("topic:" + topic) + "&sort=stars&order=desc&per_page=30", { headers: { Accept: "application/vnd.github+json" } });
+        if (!response.ok) {
+          if (response.status === 403 || response.status === 429) throw new Error("GitHub's search rate limit was reached. Wait a few minutes, then refresh.");
+          throw new Error("GitHub returned HTTP " + response.status + ".");
+        }
+        const data = await response.json() as { items?: MarketplaceRepo[] };
+        if (!Array.isArray(data.items)) throw new Error("GitHub returned an unexpected repository list.");
+        repos = data.items.filter(item => !item.archived && item.full_name && item.html_url);
+        sessionStorage.setItem(cacheKey, JSON.stringify({ savedAt: Date.now(), items: repos }));
+      }
+      setMarketplaceItems(repos);
+      setMarketplaceLoadedCategory(category);
+      addLog("Loaded " + repos.length + " community repositories for " + category, "success");
+    } catch (error) {
+      setMarketplaceError(String(error));
+      setMarketplaceLoadedCategory(category);
+      setMarketplaceItems([]);
+      addLog("Marketplace discovery failed: " + String(error), "warning");
+    } finally { setMarketplaceLoading(false); }
+  }, [addLog]);
+
+  useEffect(() => {
+    if (section === "Marketplace" && marketplaceLoadedCategory !== marketplaceCategory && !marketplaceLoading) void refreshMarketplace(marketplaceCategory);
+  }, [section, marketplaceCategory, marketplaceLoadedCategory, marketplaceLoading, refreshMarketplace]);
 
   const refreshInventory = useCallback(async () => {
     setInventoryLoading(true);
@@ -273,6 +348,67 @@ function App() {
           </div>
           {result && <section className="panel output-panel"><div className="panel-heading"><div><h2>Last command</h2><p><code>{result.command}</code></p></div><span className={`tag ${result.success ? "tag-good" : "tag-bad"}`}>{result.success ? "Success" : `Exit ${result.code ?? "error"}`}</span></div><pre>{[result.stdout, result.stderr].filter(Boolean).join("\n") || "Command completed without output."}</pre></section>}
           <footer className="footer"><span><Heart size={12}/> Open source, built for customization.</span><span>SpiceDeck is independent and not affiliated with Spotify or Spicetify.</span></footer>
+        </>}
+
+        {section === "Setup" && <>
+          <div className="page-heading compact"><div><div className="eyebrow"><span className="eyebrow-line"/> FIRST-RUN ASSISTANT</div><h1>Get set up<span>.</span></h1><p>Install Spotify, install Spicetify, then let SpiceDeck verify the setup.</p></div><button className="button button-secondary" onClick={() => void refreshStatus()} disabled={loading}><RefreshCw size={14} className={loading ? "spin" : ""}/> Recheck setup</button></div>
+          {notice && <div className="notice"><X size={16}/><span>{notice}</span><button onClick={() => setNotice("")}><X size={14}/></button></div>}
+          <div className="setup-wizard-progress">
+            <div className={status?.spotifyFound ? "wizard-progress-step complete" : "wizard-progress-step current"}><span>{status?.spotifyFound ? <Check size={14}/> : "1"}</span><div><strong>Spotify</strong><small>{status?.spotifyFound ? "Detected" : "Install the desktop app"}</small></div></div>
+            <div className="wizard-progress-connector"/>
+            <div className={status?.spicetifyFound ? "wizard-progress-step complete" : !status?.spotifyFound ? "wizard-progress-step" : "wizard-progress-step current"}><span>{status?.spicetifyFound ? <Check size={14}/> : "2"}</span><div><strong>Spicetify CLI</strong><small>{status?.spicetifyFound ? "Detected" : "Install the official CLI"}</small></div></div>
+            <div className="wizard-progress-connector"/>
+            <div className={status?.spotifyFound && status?.spicetifyFound ? "wizard-progress-step current" : "wizard-progress-step"}><span>3</span><div><strong>Verify</strong><small>Log in and refresh status</small></div></div>
+          </div>
+          {!status?.spotifyFound && <section className="panel wizard-card">
+            <div className="wizard-card-icon spotify"><Activity size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 1</div><h2>Install Spotify</h2><p>SpiceDeck downloads Spotify from its official CDN and runs the platform-specific installation flow. Linux uses Spotify's official APT repository on Debian/Ubuntu-based systems, or a user-scoped Flathub install when Flatpak is available.</p>
+              {status?.platform === "Windows" && <button className="button button-primary" onClick={() => void installSoftware("spotify")} disabled={!!installerBusy}><Download size={15}/> {installerBusy === "spotify" ? "Downloading and installing…" : "Download and install Spotify"}</button>}
+              {status?.platform === "macOS" && <button className="button button-primary" onClick={() => void installSoftware("spotify")} disabled={!!installerBusy}><Download size={15}/> {installerBusy === "spotify" ? "Downloading and installing…" : "Download and install Spotify"}</button>}
+              {status?.platform === "Linux" && <div className="wizard-platform-note"><strong>Linux installation depends on your distribution.</strong><p>SpiceDeck checks your Linux distribution and chooses the official Spotify APT repository on Debian/Ubuntu-based systems, or a user-scoped Flatpak install when Flatpak is available. Snap is not used because Spicetify cannot modify Snap Spotify.</p><button className="button button-primary" onClick={() => void installSoftware("spotify")} disabled={!!installerBusy}><Download size={15}/> {installerBusy === "spotify" ? "Installing Spotify…" : "Install Spotify automatically"}</button></div>}
+              {!status?.platform && <p>Detecting your operating system…</p>}
+              <div className="wizard-footnote">After installing, launch Spotify and sign in. Spicetify recommends leaving it open for at least 60 seconds so it can generate the files it needs.</div>
+            </div>
+          </section>}
+          {status?.spotifyFound && <section className="panel wizard-card wizard-card-done"><div className="wizard-card-icon"><Check size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 1 COMPLETE</div><h2>Spotify detected</h2><p>SpiceDeck found a Spotify installation. It will still check compatibility before applying any modifications.</p></div></section>}
+          {!status?.spicetifyFound && <section className="panel wizard-card">
+            <div className="wizard-card-icon cli"><Terminal size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 2</div><h2>Install Spicetify CLI</h2><p>SpiceDeck downloads the latest stable CLI release directly from the official Spicetify GitHub releases, selects the correct OS and CPU build, installs it in your user profile, and verifies the executable.</p>
+<button className="button button-primary" onClick={() => void installSoftware("spicetify")} disabled={!!installerBusy || !status?.spotifyFound}><Download size={15}/>{installerBusy === "spicetify" ? "Downloading and installing…" : "Install Spicetify automatically"}</button>
+              {status?.platform === "Windows" && <p className="wizard-footnote">SpiceDeck installs the official release into your user-local application data folder. It does not require a global PATH change.</p>}
+              {(status?.platform === "Linux" || status?.platform === "macOS") && <p className="wizard-footnote">SpiceDeck installs the official release into your user profile without running as root or modifying shell startup files.</p>}
+              <button className="text-button wizard-doc-link" onClick={() => window.open("https://spicetify.co/docs/getting-started/", "_blank", "noopener,noreferrer")}>Read the official Spicetify guide <ExternalLink size={13}/></button>
+            </div>
+          </section>}
+          {status?.spicetifyFound && <section className="panel wizard-card wizard-card-done"><div className="wizard-card-icon"><Check size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 2 COMPLETE</div><h2>Spicetify CLI detected</h2><p>Version {status.version ?? "detected"}. SpiceDeck can now use its existing maintenance and customization features.</p></div></section>}
+          <section className="panel wizard-card">
+            <div className="wizard-card-icon verify"><ShieldCheck size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 3</div><h2>Verify and continue</h2><p>Once Spotify and Spicetify are installed, launch Spotify, sign in, and leave it open for at least 60 seconds. Then refresh the status check.</p>
+              <div className="wizard-checklist"><span className={status?.spotifyFound ? "checklist-item done" : "checklist-item"}>{status?.spotifyFound ? <Check size={14}/> : <span/>} Spotify detected</span><span className={status?.spicetifyFound ? "checklist-item done" : "checklist-item"}>{status?.spicetifyFound ? <Check size={14}/> : <span/>} Spicetify CLI detected</span></div>
+              <div className="wizard-actions"><button className="button button-secondary" onClick={() => void refreshStatus()} disabled={loading}><RefreshCw size={14} className={loading ? "spin" : ""}/> Recheck status</button><button className="button button-primary" onClick={() => setSection(status?.spicetifyFound ? "Marketplace" : "Overview")} disabled={!status?.spicetifyFound}><Check size={14}/> Continue to SpiceDeck</button></div>
+              {status?.spotifyFound && status?.spicetifyFound && <div className="wizard-initialize"><p>Have you opened Spotify, signed in, and left it running for at least 60 seconds? SpiceDeck can now create Spicetify's backup and apply its initial customization files.</p><button className="button button-primary" disabled={!!busyAction || !!installerBusy} onClick={() => { if (window.confirm("Initialize Spicetify? This creates a backup and applies Spicetify's default modifications to Spotify.")) void runAction("setup"); }}><ShieldCheck size={15}/>{busyAction === "setup" ? "Initializing…" : "Initialize and apply Spicetify"}</button></div>}
+              {status?.spicetifyFound && !status.spotifyFound && <p className="wizard-warning">Spicetify was found, but Spotify was not detected at a known path. Confirm Spotify's install type and path before applying changes.</p>}
+            </div>
+          </section>
+          <div className="marketplace-footnote">SpiceDeck selects an installer based on the OS and Linux distribution. System package installation may trigger the OS authorization prompt. The Spicetify CLI is installed in your user profile, and existing installations are checked before downloading.</div>
+        </>}
+
+        {section === "Marketplace" && <>
+          <div className="page-heading compact"><div><div className="eyebrow"><span className="eyebrow-line"/> COMMUNITY CATALOG</div><h1>Marketplace<span>.</span></h1><p>Discover community themes, extensions, and custom apps from GitHub.</p></div><button className="button button-secondary" onClick={() => { setMarketplaceLoadedCategory(""); void refreshMarketplace(marketplaceCategory); }} disabled={marketplaceLoading}><RefreshCw size={14} className={marketplaceLoading ? "spin" : ""}/> Refresh catalog</button></div>
+          <div className="marketplace-safety"><ShieldCheck size={17}/><div><strong>Browse first, inspect before installing.</strong><span>These projects are community-maintained repositories, not an endorsement by SpiceDeck or Spicetify. Customizations can execute code inside Spotify. Review the source before installing.</span></div></div>
+          <div className="marketplace-toolbar"><div className="marketplace-tabs" role="tablist" aria-label="Marketplace category">
+            {(["Themes", "Extensions", "Custom Apps"] as MarketplaceCategory[]).map(category => <button key={category} role="tab" aria-selected={marketplaceCategory === category} className={marketplaceCategory === category ? "marketplace-tab active" : "marketplace-tab"} onClick={() => { setMarketplaceCategory(category); setMarketplaceLoadedCategory(""); }}>{category}</button>)}
+          </div><label className="search-box marketplace-search"><Search size={15}/><input value={marketplaceQuery} onChange={event => setMarketplaceQuery(event.target.value)} placeholder={"Search " + marketplaceCategory.toLowerCase() + "…"}/></label></div>
+          {marketplaceError && <div className="notice"><X size={16}/><span>{marketplaceError}</span><button onClick={() => { setMarketplaceError(""); setMarketplaceLoadedCategory(""); void refreshMarketplace(marketplaceCategory); }}><RefreshCw size={14}/></button></div>}
+          {marketplaceLoading ? <div className="panel marketplace-empty"><LoaderCircle size={22} className="spin"/><strong>Loading community catalog…</strong><span>Fetching public GitHub repository metadata.</span></div> : <>
+            <div className="marketplace-results-heading"><span>{marketplaceItems.filter(item => (item.full_name + " " + (item.description ?? "")).toLowerCase().includes(marketplaceQuery.toLowerCase())).length} repositories</span><span>Source: GitHub topic <code>spicetify-{marketplaceCategory === "Custom Apps" ? "apps" : marketplaceCategory.toLowerCase()}</code></span></div>
+            <div className="marketplace-grid">{marketplaceItems.filter(item => (item.full_name + " " + (item.description ?? "")).toLowerCase().includes(marketplaceQuery.toLowerCase())).map(item => <article className="marketplace-card" key={item.id}>
+              <div className="marketplace-card-top"><div className="marketplace-card-icon"><Globe size={18}/></div><span className="marketplace-source">GitHub repository</span></div>
+              <h3>{item.full_name}</h3><p>{item.description || "No description provided by the repository owner."}</p>
+              <div className="marketplace-meta"><span><Star size={13}/>{item.stargazers_count.toLocaleString()}</span><span><Clock3 size={13}/>Updated {new Date(item.pushed_at).toLocaleDateString()}</span>{item.language && <span>{item.language}</span>}</div>
+              <div className="marketplace-card-footer"><span className="tag tag-muted">{marketplaceCategory === "Custom Apps" ? "Custom app" : marketplaceCategory.slice(0, -1)}</span><button className="button button-secondary" onClick={() => window.open(item.html_url, "_blank", "noopener,noreferrer")}>Inspect source <ExternalLink size={13}/></button></div>
+            </article>)}</div>
+            {!marketplaceItems.length && !marketplaceError && <div className="panel marketplace-empty"><Globe size={22}/><strong>No repositories found</strong><span>The GitHub topic may have no matching repositories right now.</span></div>}
+            {marketplaceItems.length > 0 && !marketplaceItems.some(item => (item.full_name + " " + (item.description ?? "")).toLowerCase().includes(marketplaceQuery.toLowerCase())) && <div className="panel marketplace-empty"><Search size={22}/><strong>No matches</strong><span>Try a shorter search phrase.</span></div>}
+          </>}
+          <div className="marketplace-footnote">Discovery is read-only in this initial marketplace milestone. Installation and removal will be added after package validation and safe file handling are in place.</div>
         </>}
 
         {section === "Configuration" && <>
