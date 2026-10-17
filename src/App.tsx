@@ -192,6 +192,7 @@ function App() {
       addLog("Loaded " + repos.length + " community repositories for " + category, "success");
     } catch (error) {
       setMarketplaceError(String(error));
+      setMarketplaceLoadedCategory(category);
       setMarketplaceItems([]);
       addLog("Marketplace discovery failed: " + String(error), "warning");
     } finally { setMarketplaceLoading(false); }
