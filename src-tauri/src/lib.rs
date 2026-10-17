@@ -333,7 +333,7 @@ fn install_spotify() -> Result<CommandResult, String> {
             let keyring = temp.join("spotify-keyring.gpg");
             download_file("https://download.spotify.com/debian/pubkey_C85668DF69375001.gpg", &key_download)?;
             run_checked(Command::new("gpg").args(["--dearmor", "--yes", "--output"]).arg(&keyring).arg(&key_download), "Prepare Spotify repository signing key")?;
-            let script = "install -D -m 0644 \\"$1\\" /usr/share/keyrings/spotify.gpg && printf '%s\\\\n' 'deb http://repository.spotify.com stable non-free' > /etc/apt/sources.list.d/spotify.list && apt-get update && apt-get install -y spotify-client";
+            let script = "install -D -m 0644 \"$1\" /usr/share/keyrings/spotify.gpg && printf '%s\\n' 'deb http://repository.spotify.com stable non-free' > /etc/apt/sources.list.d/spotify.list && apt-get update && apt-get install -y spotify-client";
             let output = run_checked(Command::new("pkexec").arg("/bin/sh").arg("-c").arg(script).arg("spicedeck-install").arg(&keyring), "Install Spotify from its official APT repository; the operating system may request authorization")?;
             let _ = fs::remove_dir_all(&temp);
             if !detect_spotify() { return Err("The package manager reported success, but Spotify was not detected afterward. Refresh status.".into()); }
