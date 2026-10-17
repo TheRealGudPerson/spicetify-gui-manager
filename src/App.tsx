@@ -7,7 +7,7 @@ import {
   Activity, Archive, ArrowDownToLine, ArrowUpRight, Check, ChevronRight, CircleHelp,
   Command, Download, ExternalLink, FileCog, FolderOpen, Gauge, Heart, Layers3, Save, ToggleLeft, ToggleRight, FileDown,
   LayoutDashboard, LoaderCircle, Palette, Play, RefreshCw, RotateCcw, Search,
-  Settings2, ShieldCheck, Sparkles, Terminal, WandSparkles, X
+  Settings2, ShieldCheck, Sparkles, Terminal, WandSparkles, X, Globe, Star, Clock3
 } from "lucide-react";
 
 type Status = { platform: string; spicetifyFound: boolean; version: string | null; spotifyFound: boolean; configPath: string | null };
@@ -16,10 +16,14 @@ type Customization = { name: string; kind: string; path: string; enabled: boolea
 type Inventory = { themes: Customization[]; extensions: Customization[]; customApps: Customization[]; colorSchemes: string[]; currentTheme: string; currentColorScheme: string; enabledExtensions: string[]; enabledCustomApps: string[]; directories: string[]; scanDiagnostics: string[] };
 type BackupEntry = { name: string; path: string; size: number; modified: number | null; isDirectory: boolean };
 
-type Section = "Overview" | "Themes" | "Extensions" | "Custom Apps" | "Color Schemes" | "Configuration" | "Backups" | "Logs";
+type Section = "Overview" | "Marketplace" | "Themes" | "Extensions" | "Custom Apps" | "Color Schemes" | "Configuration" | "Backups" | "Logs";
+
+type MarketplaceCategory = "Themes" | "Extensions" | "Custom Apps";
+type MarketplaceRepo = { id: number; full_name: string; description: string | null; html_url: string; stargazers_count: number; default_branch: string; pushed_at: string; language: string | null; archived: boolean };
 
 const navigation: { name: Section; icon: typeof LayoutDashboard; note?: string }[] = [
   { name: "Overview", icon: LayoutDashboard },
+  { name: "Marketplace", icon: Globe, note: "NEW" },
   { name: "Themes", icon: Palette },
   { name: "Extensions", icon: Layers3 },
   { name: "Custom Apps", icon: Sparkles },
@@ -54,6 +58,12 @@ function App() {
   const [updateBusy, setUpdateBusy] = useState(false);
   const [updateMessage, setUpdateMessage] = useState("");
   const [updateError, setUpdateError] = useState("");
+  const [marketplaceCategory, setMarketplaceCategory] = useState<MarketplaceCategory>("Themes");
+  const [marketplaceItems, setMarketplaceItems] = useState<MarketplaceRepo[]>([]);
+  const [marketplaceLoading, setMarketplaceLoading] = useState(false);
+  const [marketplaceError, setMarketplaceError] = useState("");
+  const [marketplaceLoadedCategory, setMarketplaceLoadedCategory] = useState<MarketplaceCategory | "">("");
+  const [marketplaceQuery, setMarketplaceQuery] = useState("");
 
   const addLog = useCallback((text: string, kind = "info") => {
     setLogs(current => [{ time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), text, kind }, ...current].slice(0, 80));
@@ -151,6 +161,45 @@ function App() {
     }
   }, [addLog, refreshStatus]);
 
+
+  const refreshMarketplace = useCallback(async (category: MarketplaceCategory) => {
+    setMarketplaceLoading(true);
+    setMarketplaceError("");
+    try {
+      const topic = category === "Themes" ? "spicetify-themes" : category === "Extensions" ? "spicetify-extensions" : "spicetify-apps";
+      const cacheKey = "spicedeck-marketplace-" + topic;
+      const cached = sessionStorage.getItem(cacheKey);
+      let repos: MarketplaceRepo[] | null = null;
+      if (cached) {
+        try {
+          const entry = JSON.parse(cached) as { savedAt: number; items: MarketplaceRepo[] };
+          if (Date.now() - entry.savedAt < 10 * 60 * 1000 && Array.isArray(entry.items)) repos = entry.items;
+        } catch { sessionStorage.removeItem(cacheKey); }
+      }
+      if (!repos) {
+        const response = await fetch("https://api.github.com/search/repositories?q=" + encodeURIComponent("topic:" + topic) + "&sort=stars&order=desc&per_page=30", { headers: { Accept: "application/vnd.github+json" } });
+        if (!response.ok) {
+          if (response.status === 403 || response.status === 429) throw new Error("GitHub's search rate limit was reached. Wait a few minutes, then refresh.");
+          throw new Error("GitHub returned HTTP " + response.status + ".");
+        }
+        const data = await response.json() as { items?: MarketplaceRepo[] };
+        if (!Array.isArray(data.items)) throw new Error("GitHub returned an unexpected repository list.");
+        repos = data.items.filter(item => !item.archived && item.full_name && item.html_url);
+        sessionStorage.setItem(cacheKey, JSON.stringify({ savedAt: Date.now(), items: repos }));
+      }
+      setMarketplaceItems(repos);
+      setMarketplaceLoadedCategory(category);
+      addLog("Loaded " + repos.length + " community repositories for " + category, "success");
+    } catch (error) {
+      setMarketplaceError(String(error));
+      setMarketplaceItems([]);
+      addLog("Marketplace discovery failed: " + String(error), "warning");
+    } finally { setMarketplaceLoading(false); }
+  }, [addLog]);
+
+  useEffect(() => {
+    if (section === "Marketplace" && marketplaceLoadedCategory !== marketplaceCategory && !marketplaceLoading) void refreshMarketplace(marketplaceCategory);
+  }, [section, marketplaceCategory, marketplaceLoadedCategory, marketplaceLoading, refreshMarketplace]);
 
   const refreshInventory = useCallback(async () => {
     setInventoryLoading(true);
@@ -273,6 +322,27 @@ function App() {
           </div>
           {result && <section className="panel output-panel"><div className="panel-heading"><div><h2>Last command</h2><p><code>{result.command}</code></p></div><span className={`tag ${result.success ? "tag-good" : "tag-bad"}`}>{result.success ? "Success" : `Exit ${result.code ?? "error"}`}</span></div><pre>{[result.stdout, result.stderr].filter(Boolean).join("\n") || "Command completed without output."}</pre></section>}
           <footer className="footer"><span><Heart size={12}/> Open source, built for customization.</span><span>SpiceDeck is independent and not affiliated with Spotify or Spicetify.</span></footer>
+        </>}
+
+        {section === "Marketplace" && <>
+          <div className="page-heading compact"><div><div className="eyebrow"><span className="eyebrow-line"/> COMMUNITY CATALOG</div><h1>Marketplace<span>.</span></h1><p>Discover community themes, extensions, and custom apps from GitHub.</p></div><button className="button button-secondary" onClick={() => { setMarketplaceLoadedCategory(""); void refreshMarketplace(marketplaceCategory); }} disabled={marketplaceLoading}><RefreshCw size={14} className={marketplaceLoading ? "spin" : ""}/> Refresh catalog</button></div>
+          <div className="marketplace-safety"><ShieldCheck size={17}/><div><strong>Browse first, inspect before installing.</strong><span>These projects are community-maintained repositories, not an endorsement by SpiceDeck or Spicetify. Customizations can execute code inside Spotify. Review the source before installing.</span></div></div>
+          <div className="marketplace-toolbar"><div className="marketplace-tabs" role="tablist" aria-label="Marketplace category">
+            {(["Themes", "Extensions", "Custom Apps"] as MarketplaceCategory[]).map(category => <button key={category} role="tab" aria-selected={marketplaceCategory === category} className={marketplaceCategory === category ? "marketplace-tab active" : "marketplace-tab"} onClick={() => { setMarketplaceCategory(category); setMarketplaceLoadedCategory(""); }}>{category}</button>)}
+          </div><label className="search-box marketplace-search"><Search size={15}/><input value={marketplaceQuery} onChange={event => setMarketplaceQuery(event.target.value)} placeholder={"Search " + marketplaceCategory.toLowerCase() + "…"}/></label></div>
+          {marketplaceError && <div className="notice"><X size={16}/><span>{marketplaceError}</span><button onClick={() => { setMarketplaceError(""); setMarketplaceLoadedCategory(""); void refreshMarketplace(marketplaceCategory); }}><RefreshCw size={14}/></button></div>}
+          {marketplaceLoading ? <div className="panel marketplace-empty"><LoaderCircle size={22} className="spin"/><strong>Loading community catalog…</strong><span>Fetching public GitHub repository metadata.</span></div> : <>
+            <div className="marketplace-results-heading"><span>{marketplaceItems.filter(item => (item.full_name + " " + (item.description ?? "")).toLowerCase().includes(marketplaceQuery.toLowerCase())).length} repositories</span><span>Source: GitHub topic <code>spicetify-{marketplaceCategory === "Custom Apps" ? "apps" : marketplaceCategory.toLowerCase()}</code></span></div>
+            <div className="marketplace-grid">{marketplaceItems.filter(item => (item.full_name + " " + (item.description ?? "")).toLowerCase().includes(marketplaceQuery.toLowerCase())).map(item => <article className="marketplace-card" key={item.id}>
+              <div className="marketplace-card-top"><div className="marketplace-card-icon"><Globe size={18}/></div><span className="marketplace-source">GitHub repository</span></div>
+              <h3>{item.full_name}</h3><p>{item.description || "No description provided by the repository owner."}</p>
+              <div className="marketplace-meta"><span><Star size={13}/>{item.stargazers_count.toLocaleString()}</span><span><Clock3 size={13}/>Updated {new Date(item.pushed_at).toLocaleDateString()}</span>{item.language && <span>{item.language}</span>}</div>
+              <div className="marketplace-card-footer"><span className="tag tag-muted">{marketplaceCategory === "Custom Apps" ? "Custom app" : marketplaceCategory.slice(0, -1)}</span><button className="button button-secondary" onClick={() => window.open(item.html_url, "_blank", "noopener,noreferrer")}>Inspect source <ExternalLink size={13}/></button></div>
+            </article>)}</div>
+            {!marketplaceItems.length && !marketplaceError && <div className="panel marketplace-empty"><Globe size={22}/><strong>No repositories found</strong><span>The GitHub topic may have no matching repositories right now.</span></div>}
+            {marketplaceItems.length > 0 && !marketplaceItems.some(item => (item.full_name + " " + (item.description ?? "")).toLowerCase().includes(marketplaceQuery.toLowerCase())) && <div className="panel marketplace-empty"><Search size={22}/><strong>No matches</strong><span>Try a shorter search phrase.</span></div>}
+          </>}
+          <div className="marketplace-footnote">Discovery is read-only in this initial marketplace milestone. Installation and removal will be added after package validation and safe file handling are in place.</div>
         </>}
 
         {section === "Configuration" && <>
