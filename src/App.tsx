@@ -154,7 +154,7 @@ function App() {
       if (response.stderr.trim()) addLog(response.stderr.trim().slice(-900), response.success ? "warning" : "error");
       addLog(response.success ? `${action} completed` : `${action} failed (exit ${response.code ?? "unknown"})`, response.success ? "success" : "error");
       if (action === "config") setConfigText(response.stdout || response.stderr);
-      if (action === "apply" || action === "backup" || action === "restore") await refreshStatus();
+      if (action === "apply" || action === "backup" || action === "restore" || action === "setup") await refreshStatus();
     } catch (error) {
       setNotice(String(error));
       addLog(String(error), "error");
@@ -372,7 +372,7 @@ function App() {
           {status?.spotifyFound && <section className="panel wizard-card wizard-card-done"><div className="wizard-card-icon"><Check size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 1 COMPLETE</div><h2>Spotify detected</h2><p>SpiceDeck found a Spotify installation. It will still check compatibility before applying any modifications.</p></div></section>}
           {!status?.spicetifyFound && <section className="panel wizard-card">
             <div className="wizard-card-icon cli"><Terminal size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 2</div><h2>Install Spicetify CLI</h2><p>SpiceDeck downloads the latest stable CLI release directly from the official Spicetify GitHub releases, selects the correct OS and CPU build, installs it in your user profile, and verifies the executable.</p>
-<button className="button button-primary" onClick={() => void installSoftware("spicetify")} disabled={!!installerBusy}><Download size={15}/>{installerBusy === "spicetify" ? "Downloading and installing…" : "Install Spicetify automatically"}</button>
+<button className="button button-primary" onClick={() => void installSoftware("spicetify")} disabled={!!installerBusy || !status?.spotifyFound}><Download size={15}/>{installerBusy === "spicetify" ? "Downloading and installing…" : "Install Spicetify automatically"}</button>
               {status?.platform === "Windows" && <p className="wizard-footnote">SpiceDeck installs the official release into your user-local application data folder. It does not require a global PATH change.</p>}
               {(status?.platform === "Linux" || status?.platform === "macOS") && <p className="wizard-footnote">SpiceDeck installs the official release into your user profile without running as root or modifying shell startup files.</p>}
               <button className="text-button wizard-doc-link" onClick={() => window.open("https://spicetify.co/docs/getting-started/", "_blank", "noopener,noreferrer")}>Read the official Spicetify guide <ExternalLink size={13}/></button>
@@ -383,6 +383,7 @@ function App() {
             <div className="wizard-card-icon verify"><ShieldCheck size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 3</div><h2>Verify and continue</h2><p>Once Spotify and Spicetify are installed, launch Spotify, sign in, and leave it open for at least 60 seconds. Then refresh the status check.</p>
               <div className="wizard-checklist"><span className={status?.spotifyFound ? "checklist-item done" : "checklist-item"}>{status?.spotifyFound ? <Check size={14}/> : <span/>} Spotify detected</span><span className={status?.spicetifyFound ? "checklist-item done" : "checklist-item"}>{status?.spicetifyFound ? <Check size={14}/> : <span/>} Spicetify CLI detected</span></div>
               <div className="wizard-actions"><button className="button button-secondary" onClick={() => void refreshStatus()} disabled={loading}><RefreshCw size={14} className={loading ? "spin" : ""}/> Recheck status</button><button className="button button-primary" onClick={() => setSection(status?.spicetifyFound ? "Marketplace" : "Overview")} disabled={!status?.spicetifyFound}><Check size={14}/> Continue to SpiceDeck</button></div>
+              {status?.spotifyFound && status?.spicetifyFound && <div className="wizard-initialize"><p>Have you opened Spotify, signed in, and left it running for at least 60 seconds? SpiceDeck can now create Spicetify's backup and apply its initial customization files.</p><button className="button button-primary" disabled={!!busyAction || !!installerBusy} onClick={() => { if (window.confirm("Initialize Spicetify? This creates a backup and applies Spicetify's default modifications to Spotify.")) void runAction("setup"); }}><ShieldCheck size={15}/>{busyAction === "setup" ? "Initializing…" : "Initialize and apply Spicetify"}</button></div>}
               {status?.spicetifyFound && !status.spotifyFound && <p className="wizard-warning">Spicetify was found, but Spotify was not detected at a known path. Confirm Spotify's install type and path before applying changes.</p>}
             </div>
           </section>
