@@ -7,7 +7,7 @@ import {
   Activity, Archive, ArrowDownToLine, ArrowUpRight, Check, ChevronRight, CircleHelp,
   Command, Download, ExternalLink, FileCog, FolderOpen, Gauge, Heart, Layers3, Save, ToggleLeft, ToggleRight, FileDown,
   LayoutDashboard, LoaderCircle, Palette, Play, RefreshCw, RotateCcw, Search,
-  Settings2, ShieldCheck, Sparkles, Terminal, WandSparkles, X, Globe, Star, Clock3, MonitorDown
+  Settings2, ShieldCheck, Sparkles, Terminal, WandSparkles, X, Globe, Star, Clock3, MonitorDown, Eye, BookOpen
 } from "lucide-react";
 
 type Status = { platform: string; spicetifyFound: boolean; version: string | null; spotifyFound: boolean; configPath: string | null };
@@ -249,6 +249,48 @@ function App() {
     if (section === "Marketplace" && marketplaceLoadedCategory !== marketplaceCategory && !marketplaceLoading) void refreshMarketplace(marketplaceCategory);
   }, [section, marketplaceCategory, marketplaceLoadedCategory, marketplaceLoading, refreshMarketplace]);
 
+  const openMarketplacePreview = useCallback(async (item: MarketplaceRepo) => {
+    setMarketplacePreview(item);
+    setMarketplacePreviewLoading(true);
+    setMarketplacePreviewError("");
+    setMarketplacePreviewReadme("");
+    setMarketplacePreviewImages([]);
+    try {
+      const response = await fetch("https://api.github.com/repos/" + item.full_name + "/readme", {
+        headers: { Accept: "application/vnd.github+json" }
+      });
+      if (!response.ok) {
+        if (response.status === 404) throw new Error("This repository does not have a README that GitHub can preview.");
+        if (response.status === 403 || response.status === 429) throw new Error("GitHub API rate limit reached. Open the source repository or try again later.");
+        throw new Error("GitHub returned HTTP " + response.status + " while loading the README.");
+      }
+      const data = await response.json() as { content?: string; encoding?: string };
+      if (!data.content || data.encoding !== "base64") throw new Error("GitHub did not return a readable README.");
+      const binary = atob(data.content.replace(/\\s/g, ""));
+      const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+      const readme = new TextDecoder().decode(bytes);
+      const markdownImages = [...readme.matchAll(/!\\[[^\\]]*\\]\\((<?)([^)\\s>]+)(?:\\s+[^)]*)?\\)?/g)]
+        .map(match => match[2])
+        .map(source => {
+          try {
+            const url = new URL(source.replace(/^<|>$/g, ""), "https://raw.githubusercontent.com/" + item.full_name + "/" + item.default_branch + "/README.md");
+            const allowedHosts = ["raw.githubusercontent.com", "github.com", "user-images.githubusercontent.com", "avatars.githubusercontent.com"];
+            const looksLikeImage = /\\.(png|jpe?g|gif|webp|svg)(?:$|\\?)/i.test(url.href) || url.pathname.includes("/user-attachments/assets/");
+            return url.protocol === "https:" && allowedHosts.includes(url.hostname) && looksLikeImage ? url.href : null;
+          } catch { return null; }
+        })
+        .filter((source): source is string => Boolean(source))
+        .filter((source, index, all) => all.indexOf(source) === index)
+        .slice(0, 6);
+      setMarketplacePreviewReadme(readme);
+      setMarketplacePreviewImages(markdownImages);
+    } catch (error) {
+      setMarketplacePreviewError(String(error));
+    } finally {
+      setMarketplacePreviewLoading(false);
+    }
+  }, []);
+
   const refreshInventory = useCallback(async () => {
     setInventoryLoading(true);
     try {
@@ -415,7 +457,7 @@ function App() {
         </>}
 
         {section === "Marketplace" && <>
-          <div className="page-heading compact"><div><div className="eyebrow"><span className="eyebrow-line"/> COMMUNITY CATALOG</div><h1>Marketplace<span>.</span></h1><p>Discover community themes, extensions, and custom apps from GitHub.</p></div><button className="button button-secondary" onClick={() => { setMarketplaceLoadedCategory(""); void refreshMarketplace(marketplaceCategory); }} disabled={marketplaceLoading}><RefreshCw size={14} className={marketplaceLoading ? "spin" : ""}/> Refresh catalog</button></div>
+          <div className="page-heading compact"><div><div className="eyebrow"><span className="eyebrow-line"/> COMMUNITY CATALOG</div><h1>Marketplace<span>.</span></h1><p>Discover community themes, extensions, and custom apps, with README screenshots and project details before you leave SpiceDeck.</p></div><button className="button button-secondary" onClick={() => { setMarketplaceLoadedCategory(""); void refreshMarketplace(marketplaceCategory); }} disabled={marketplaceLoading}><RefreshCw size={14} className={marketplaceLoading ? "spin" : ""}/> Refresh catalog</button></div>
           <div className="marketplace-safety"><ShieldCheck size={17}/><div><strong>Browse first, inspect before installing.</strong><span>These projects are community-maintained repositories, not an endorsement by SpiceDeck or Spicetify. Customizations can execute code inside Spotify. Review the source before installing.</span></div></div>
           <div className="marketplace-toolbar"><div className="marketplace-tabs" role="tablist" aria-label="Marketplace category">
             {(["Themes", "Extensions", "Custom Apps"] as MarketplaceCategory[]).map(category => <button key={category} role="tab" aria-selected={marketplaceCategory === category} className={marketplaceCategory === category ? "marketplace-tab active" : "marketplace-tab"} onClick={() => { setMarketplaceCategory(category); setMarketplaceLoadedCategory(""); }}>{category}</button>)}
@@ -427,7 +469,7 @@ function App() {
               <div className="marketplace-card-top"><div className="marketplace-card-icon"><Globe size={18}/></div><span className="marketplace-source">GitHub repository</span></div>
               <h3>{item.full_name}</h3><p>{item.description || "No description provided by the repository owner."}</p>
               <div className="marketplace-meta"><span><Star size={13}/>{item.stargazers_count.toLocaleString()}</span><span><Clock3 size={13}/>Updated {new Date(item.pushed_at).toLocaleDateString()}</span>{item.language && <span>{item.language}</span>}</div>
-              <div className="marketplace-card-footer"><span className="tag tag-muted">{marketplaceCategory === "Custom Apps" ? "Custom app" : marketplaceCategory.slice(0, -1)}</span><button className="button button-secondary" onClick={() => window.open(item.html_url, "_blank", "noopener,noreferrer")}>Inspect source <ExternalLink size={13}/></button></div>
+              <div className="marketplace-card-footer"><span className="tag tag-muted">{marketplaceCategory === "Custom Apps" ? "Custom app" : marketplaceCategory.slice(0, -1)}</span><button className="button button-secondary" onClick={() => void openMarketplacePreview(item)}><Eye size={13}/> Preview</button><button className="button button-secondary" onClick={() => window.open(item.html_url, "_blank", "noopener,noreferrer")}>Source <ExternalLink size={13}/></button></div>
             </article>)}</div>
             {!marketplaceItems.length && !marketplaceError && <div className="panel marketplace-empty"><Globe size={22}/><strong>No repositories found</strong><span>The GitHub topic may have no matching repositories right now.</span></div>}
             {marketplaceItems.length > 0 && !marketplaceItems.some(item => (item.full_name + " " + (item.description ?? "")).toLowerCase().includes(marketplaceQuery.toLowerCase())) && <div className="panel marketplace-empty"><Search size={22}/><strong>No matches</strong><span>Try a shorter search phrase.</span></div>}
@@ -489,6 +531,31 @@ function App() {
             <div className="inline-help"><Palette size={15}/><span>Choose a scheme, then use Apply changes on Overview to rebuild Spotify's resources.</span></div></div>}
         </>}
       </div>
+      {marketplacePreview && <div className="preview-backdrop" role="presentation" onClick={() => { if (!marketplacePreviewLoading) setMarketplacePreview(null); }}>
+        <section className="marketplace-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="marketplace-preview-title" onClick={event => event.stopPropagation()}>
+          <header className="preview-dialog-header">
+            <div><div className="eyebrow"><span className="eyebrow-line"/> COMMUNITY PREVIEW</div><h2 id="marketplace-preview-title">{marketplacePreview.full_name}</h2><p>{marketplacePreview.description || "No repository description provided."}</p></div>
+            <button className="icon-button" aria-label="Close preview" onClick={() => setMarketplacePreview(null)}><X size={17}/></button>
+          </header>
+          <div className="preview-dialog-meta"><span><Star size={13}/>{marketplacePreview.stargazers_count.toLocaleString()} stars</span><span><Clock3 size={13}/>Updated {new Date(marketplacePreview.pushed_at).toLocaleDateString()}</span>{marketplacePreview.language && <span>{marketplacePreview.language}</span>}</div>
+          {marketplacePreviewLoading ? <div className="marketplace-empty preview-loading"><LoaderCircle size={23} className="spin"/><strong>Loading project preview…</strong><span>Reading the repository README and looking for screenshots.</span></div> : <>
+            {marketplacePreviewError && <div className="notice"><CircleHelp size={16}/><span>{marketplacePreviewError}</span></div>}
+            {marketplacePreviewImages.length > 0 && <div className="preview-image-grid">{marketplacePreviewImages.map((source, index) => <a key={source} href={source} target="_blank" rel="noreferrer" className="preview-image-link" title="Open image in browser"><img src={source} alt={marketplacePreview.full_name + " preview " + (index + 1)} loading="lazy"/><span><ExternalLink size={12}/> Open image</span></a>)}</div>}
+            {marketplacePreviewReadme && <div className="preview-readme"><div className="preview-readme-heading"><BookOpen size={15}/><strong>From the project README</strong></div>{marketplacePreviewReadme.split("\n").map(line => line.trim()).filter(line => line && !line.startsWith("![") && !line.startsWith("<img") && !line.startsWith("[![")).slice(0, 36).map((line, index) => {
+              const heading = line.match(/^#{1,3}\s+(.+)$/);
+              const bullet = line.match(/^[-*+]\s+(.+)$/);
+              const clean = (heading?.[1] ?? bullet?.[1] ?? line).replace(/<[^>]*>/g, "").replace(/[`*_~]/g, "").replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1").trim();
+              if (!clean || /^https?:\/\//i.test(clean)) return null;
+              if (heading) return <h3 key={index}>{clean}</h3>;
+              if (bullet) return <p className="preview-readme-bullet" key={index}>• {clean}</p>;
+              if (/^>/.test(clean) || /^\|/.test(clean)) return null;
+              return <p key={index}>{clean}</p>;
+            })}</div>}
+            {!marketplacePreviewReadme && !marketplacePreviewError && <div className="marketplace-empty"><BookOpen size={22}/><strong>No README preview available</strong><span>Open the source repository to inspect its files and documentation.</span></div>}
+          </>}
+          <footer className="preview-dialog-footer"><span>Preview only. SpiceDeck does not install third-party code from this screen.</span><button className="button button-secondary" onClick={() => window.open(marketplacePreview.html_url, "_blank", "noopener,noreferrer")}>Open repository <ExternalLink size={13}/></button><button className="button button-primary" onClick={() => setMarketplacePreview(null)}>Done</button></footer>
+        </section>
+      </div>}
     </main>
   </div>;
 }
