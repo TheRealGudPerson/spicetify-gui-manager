@@ -1,6 +1,23 @@
 use serde::Serialize;
+
+// Session-scoped safety latch: require a fresh sign-in confirmation after every app launch.
+static SPOTIFY_SIGN_IN_CONFIRMED: AtomicBool = AtomicBool::new(false);
+
+fn require_spotify_sign_in() -> Result<(), String> {
+    if SPOTIFY_SIGN_IN_CONFIRMED.load(Ordering::SeqCst) {
+        Ok(())
+    } else {
+        Err("Safety lock: open Spotify, sign in to your account, leave Spotify running for at least 60 seconds, then confirm sign-in in SpiceDeck before any Spicetify command can run.".into())
+    }
+}
+
+fn spicetify_binary_exists() -> bool {
+    let candidate = spicetify_executable();
+    candidate.is_file() || command_available("spicetify")
+}
 use std::{
     fs,
+    sync::atomic::{AtomicBool, Ordering},
     path::{Path, PathBuf},
     process::{Command, Output},
     time::{SystemTime, UNIX_EPOCH},
@@ -75,6 +92,7 @@ fn spicetify_executable() -> PathBuf {
 }
 
 fn execute(args: &[&str]) -> Result<Output, String> {
+    require_spotify_sign_in()?;
     Command::new(spicetify_executable())
         .args(args)
         .output()
@@ -82,6 +100,7 @@ fn execute(args: &[&str]) -> Result<Output, String> {
 }
 
 fn execute_owned(args: &[String]) -> Result<Output, String> {
+    require_spotify_sign_in()?;
     Command::new(spicetify_executable())
         .args(args)
         .output()
@@ -356,7 +375,7 @@ fn install_spotify() -> Result<CommandResult, String> {
 }
 
 fn install_spicetify() -> Result<CommandResult, String> {
-    if execute(&["--version"]).map(|output| output.status.success()).unwrap_or(false) {
+    if spicetify_binary_exists() {
         return Err("Spicetify is already detected. Refresh status before attempting another installation.".into());
     }
     let temp = install_temp_dir()?;
@@ -408,16 +427,16 @@ fn install_spicetify() -> Result<CommandResult, String> {
     let _ = fs::remove_dir_all(&temp);
     let executable = if cfg!(windows) { install_dir.join("spicetify.exe") } else { install_dir.join("spicetify") };
     if !executable.is_file() { return Err(format!("The installer finished but {} was not found.", executable.display())); }
-    let output = Command::new(&executable).arg("--version").output().map_err(|error| format!("Spicetify was downloaded but could not be launched: {error}"))?;
-    if !output.status.success() { return Err(format!("Spicetify was downloaded but its version check failed: {}", output_text(&output.stderr))); }
-    Ok(CommandResult { success: true, command: format!("Download and install official Spicetify CLI {version}"), code: output.status.code(), stdout: format!("Installed Spicetify {} to {}", output_text(&output.stdout), executable.display()), stderr: output_text(&output.stderr) })
+    if !executable.is_file() { return Err("Spicetify archive was extracted, but the executable could not be found.".into()); }
+    Ok(CommandResult { success: true, command: format!("Download and install official Spicetify CLI {version}"), code: Some(0), stdout: format!("Installed official Spicetify CLI {version} to {}. CLI execution and version verification are deferred until you confirm Spotify sign-in in SpiceDeck.", executable.display()), stderr: String::new() })
 }
 
 #[tauri::command]
 fn get_status() -> Status {
-    let version_result = execute(&["--version"]);
-    let spicetify_found = version_result.as_ref().map(|result| result.status.success()).unwrap_or(false);
-    let version = version_result.as_ref().ok()
+    // Detect the binary without launching it. Running any Spicetify command is locked until sign-in confirmation.
+    let spicetify_found = spicetify_binary_exists();
+    let version_result = if SPOTIFY_SIGN_IN_CONFIRMED.load(Ordering::SeqCst) { execute(&["--version"]).ok() } else { None };
+    let version = version_result.as_ref()
         .filter(|result| result.status.success())
         .map(|result| output_text(&result.stdout))
         .filter(|value| !value.is_empty());
@@ -551,6 +570,7 @@ fn customization_dir(kind: &str) -> PathBuf {
 
 #[tauri::command]
 fn get_customizations() -> Result<CustomizationInventory, String> {
+    require_spotify_sign_in()?;
     let theme_dir = customization_dir("themes");
     let extension_dir = customization_dir("extensions");
     let apps_dir = customization_dir("custom_apps");
@@ -639,6 +659,7 @@ fn set_config_value(key: String, value: String) -> Result<CommandResult, String>
 
 #[tauri::command]
 fn get_backups() -> Result<Vec<BackupEntry>, String> {
+    require_spotify_sign_in()?;
     let backup_dir = cli_path("backup")
         .filter(|path| path.is_dir())
         .or_else(|| config_directory().map(|path| path.join("Backup")).filter(|path| path.is_dir()))
@@ -666,6 +687,7 @@ fn get_backups() -> Result<Vec<BackupEntry>, String> {
 
 #[tauri::command]
 fn run_action(action: String) -> Result<CommandResult, String> {
+    require_spotify_sign_in()?;
     let args: Vec<&str> = match action.as_str() {
         "apply" => vec!["apply"],
         "backup" => vec!["backup"],
@@ -685,6 +707,15 @@ fn run_action(action: String) -> Result<CommandResult, String> {
     })
 }
 
+#[tauri::command]
+fn confirm_spotify_signed_in() -> Result<(), String> {
+    if !detect_spotify() {
+        return Err("Spotify was not detected at a supported installation path. Install or locate Spotify first.".into());
+    }
+    SPOTIFY_SIGN_IN_CONFIRMED.store(true, Ordering::SeqCst);
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -692,7 +723,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
-            get_status, run_action, get_customizations, get_backups, set_config_value, install_software
+            get_status, run_action, get_customizations, get_backups, set_config_value, install_software, confirm_spotify_signed_in
         ])
         .run(tauri::generate_context!())
         .expect("error while running SpiceDeck");
