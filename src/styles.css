@@ -155,3 +155,14 @@ button { min-height: 34px; }
 
 .wizard-initialize{margin-top:15px;padding:14px;border:1px solid var(--line);border-radius:9px;background:#171c17}
 .wizard-initialize p{font-size:11px;line-height:1.65;color:#a2ada2;margin:0 0 12px}
+
+
+/* Spotify sign-in safety gate */
+.sign-in-lock-notice { display: flex; align-items: center; gap: 12px; border-color: var(--warning, #d69e36); }
+.sign-in-lock-notice > span { flex: 1; }
+.spotify-sign-in-confirmation { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 16px; padding: 16px; border: 1px solid var(--border, rgba(255,255,255,.12)); border-radius: 12px; background: var(--surface-raised, rgba(255,255,255,.025)); }
+.spotify-sign-in-confirmation > div { min-width: 0; }
+.spotify-sign-in-confirmation strong { display: block; }
+.spotify-sign-in-confirmation p { margin: 5px 0 0; color: var(--text-secondary, #9b9ba6); font-size: 13px; line-height: 1.5; }
+.spotify-sign-in-confirmation.confirmed { border-color: var(--success, #3a9b70); }
+@media (max-width: 760px) { .spotify-sign-in-confirmation, .sign-in-lock-notice { align-items: stretch; flex-direction: column; } }
