@@ -66,6 +66,8 @@ function App() {
   const [marketplaceLoadedCategory, setMarketplaceLoadedCategory] = useState<MarketplaceCategory | "">("");
   const [marketplaceQuery, setMarketplaceQuery] = useState("");
   const [installerBusy, setInstallerBusy] = useState("");
+  const [spotifySignedInConfirmed, setSpotifySignedInConfirmed] = useState(false);
+  const [signInConfirmBusy, setSignInConfirmBusy] = useState(false);
 
   const addLog = useCallback((text: string, kind = "info") => {
     setLogs(current => [{ time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), text, kind }, ...current].slice(0, 80));
@@ -88,6 +90,22 @@ function App() {
   useEffect(() => { void getVersion().then(setAppVersion).catch(() => undefined); }, []);
 
   useEffect(() => { void refreshStatus(); }, [refreshStatus]);
+
+  const confirmSpotifySignedIn = useCallback(async () => {
+    setSignInConfirmBusy(true);
+    setNotice("");
+    try {
+      await invoke("confirm_spotify_signed_in");
+      setSpotifySignedInConfirmed(true);
+      addLog("User confirmed Spotify is signed in; Spicetify commands unlocked for this session", "success");
+      await refreshStatus();
+    } catch (error) {
+      setNotice(String(error));
+      addLog("Spotify sign-in confirmation failed: " + String(error), "error");
+    } finally {
+      setSignInConfirmBusy(false);
+    }
+  }, [addLog, refreshStatus]);
 
   const checkForUpdates = useCallback(async (quiet = false) => {
     setUpdateBusy(true);
@@ -247,9 +265,9 @@ function App() {
   }, [addLog]);
 
   useEffect(() => {
-    if (["Themes", "Extensions", "Custom Apps", "Color Schemes", "Configuration"].includes(section) && status?.spicetifyFound) void refreshInventory();
-    if (section === "Backups" && status?.spicetifyFound) void refreshBackups();
-  }, [section, status?.spicetifyFound, refreshInventory, refreshBackups]);
+    if (["Themes", "Extensions", "Custom Apps", "Color Schemes", "Configuration"].includes(section) && status?.spicetifyFound && spotifySignedInConfirmed) void refreshInventory();
+    if (section === "Backups" && status?.spicetifyFound && spotifySignedInConfirmed) void refreshBackups();
+  }, [section, status?.spicetifyFound, spotifySignedInConfirmed, refreshInventory, refreshBackups]);
 
   const saveConfigValue = useCallback(async (key: string, value: string) => {
     setBusyAction(`config:${key}`);
@@ -318,6 +336,7 @@ function App() {
       <header className="topbar"><div className="breadcrumb">Workspace <span>/</span> <strong>{section}</strong></div><div className="top-actions"><span className="platform-pill"><span className="pulse-dot"/>{status?.platform ?? "Detecting platform"}</span><button className={"update-top-button " + (availableUpdate ? "has-update" : "")} title={availableUpdate ? "Install SpiceDeck " + availableUpdate.version : "Check for updates"} onClick={() => availableUpdate ? void installUpdate() : void checkForUpdates()} disabled={updateBusy}>{updateBusy ? <LoaderCircle size={15} className="spin"/> : availableUpdate ? <Download size={15}/> : <RefreshCw size={15}/>}<span>{updateBusy ? "Updating..." : availableUpdate ? "Update " + availableUpdate.version : "Check updates"}</span></button><button className="icon-button" title="Refresh status" onClick={() => void refreshStatus()} disabled={loading}><RefreshCw size={16} className={loading ? "spin" : ""}/></button></div></header>
       {(availableUpdate || updateMessage || updateError) && <div className={"update-banner " + (availableUpdate ? "update-banner-ready" : updateError ? "update-banner-error" : "")}><div className="update-banner-icon">{availableUpdate ? <Download size={18}/> : updateError ? <CircleHelp size={18}/> : <RefreshCw size={18}/>}</div><div className="update-banner-copy"><strong>{availableUpdate ? "SpiceDeck " + availableUpdate.version + " is ready" : updateMessage || "Update status"}</strong><span>{availableUpdate ? (availableUpdate.body?.trim() || "A newer version is available. Install it now and SpiceDeck will restart.") : updateError ? updateError : "You can keep working while the app checks for updates."}</span></div>{availableUpdate && <button className="button button-primary" onClick={() => void installUpdate()} disabled={updateBusy}>{updateBusy ? <LoaderCircle size={15} className="spin"/> : <Download size={15}/>}Install and restart</button>}{!availableUpdate && <button className="icon-button" title="Dismiss update message" onClick={() => { setUpdateMessage(""); setUpdateError(""); }}><X size={15}/></button>}</div>}
       <div className="content">
+        {status?.spotifyFound && status?.spicetifyFound && !spotifySignedInConfirmed && <div className="notice sign-in-lock-notice"><ShieldCheck size={17}/><span><strong>Spicetify safety lock is active.</strong> Open Spotify, sign in to your account, and leave it running for at least 60 seconds. Confirm sign-in in Setup before any Spicetify command can run.</span><button className="button button-secondary" onClick={() => setSection("Setup")}>Go to Setup</button></div>}
         {section === "Overview" && <>
           <div className="page-heading"><div><div className="eyebrow"><span className="eyebrow-line"/> YOUR MUSIC, YOUR RULES</div><h1>Take control of <span>Spotify.</span></h1><p>Manage your Spicetify setup without living in a terminal.</p></div><button className="button button-primary" disabled={!status?.spicetifyFound || !!busyAction} onClick={() => void runAction("apply")}>{busyAction === "apply" ? <LoaderCircle className="spin" size={16}/> : <Play size={15} fill="currentColor"/>}{runLabel("apply")}</button></div>
           {notice && <div className="notice"><X size={16}/><span>{notice}</span><button onClick={() => setNotice("")}><X size={14}/></button></div>}
@@ -380,10 +399,11 @@ function App() {
           </section>}
           {status?.spicetifyFound && <section className="panel wizard-card wizard-card-done"><div className="wizard-card-icon"><Check size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 2 COMPLETE</div><h2>Spicetify CLI detected</h2><p>Version {status.version ?? "detected"}. SpiceDeck can now use its existing maintenance and customization features.</p></div></section>}
           <section className="panel wizard-card">
-            <div className="wizard-card-icon verify"><ShieldCheck size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 3</div><h2>Verify and continue</h2><p>Once Spotify and Spicetify are installed, launch Spotify, sign in, and leave it open for at least 60 seconds. Then refresh the status check.</p>
+            <div className="wizard-card-icon verify"><ShieldCheck size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 3</div><h2>Verify and continue</h2><p><strong>Required before any Spicetify command:</strong> open the Spotify desktop app, sign in to your account, and leave it running for at least 60 seconds. SpiceDeck cannot independently verify Spotify account authentication, so it requires your explicit confirmation. The backend blocks all Spicetify CLI execution and file-changing operations until you confirm.</p>
               <div className="wizard-checklist"><span className={status?.spotifyFound ? "checklist-item done" : "checklist-item"}>{status?.spotifyFound ? <Check size={14}/> : <span/>} Spotify detected</span><span className={status?.spicetifyFound ? "checklist-item done" : "checklist-item"}>{status?.spicetifyFound ? <Check size={14}/> : <span/>} Spicetify CLI detected</span></div>
+              <div className={"spotify-sign-in-confirmation " + (spotifySignedInConfirmed ? "confirmed" : "")}><div><strong>{spotifySignedInConfirmed ? "Spotify sign-in confirmed for this session" : "Confirm your Spotify sign-in"}</strong><p>{spotifySignedInConfirmed ? "Spicetify commands are unlocked until you close SpiceDeck. A new launch requires confirmation again." : "This unlocks Spicetify CLI execution and file-changing operations. You must already be signed in inside the Spotify desktop app."}</p></div><button className="button button-primary" onClick={() => void confirmSpotifySignedIn()} disabled={!status?.spotifyFound || signInConfirmBusy || spotifySignedInConfirmed}>{signInConfirmBusy ? <LoaderCircle size={15} className="spin"/> : <ShieldCheck size={15}/>} {spotifySignedInConfirmed ? "Confirmed" : signInConfirmBusy ? "Confirming…" : "I've signed in to Spotify"}</button></div>
               <div className="wizard-actions"><button className="button button-secondary" onClick={() => void refreshStatus()} disabled={loading}><RefreshCw size={14} className={loading ? "spin" : ""}/> Recheck status</button><button className="button button-primary" onClick={() => setSection(status?.spicetifyFound ? "Marketplace" : "Overview")} disabled={!status?.spicetifyFound}><Check size={14}/> Continue to SpiceDeck</button></div>
-              {status?.spotifyFound && status?.spicetifyFound && <div className="wizard-initialize"><p>Have you opened Spotify, signed in, and left it running for at least 60 seconds? SpiceDeck can now create Spicetify's backup and apply its initial customization files.</p><button className="button button-primary" disabled={!!busyAction || !!installerBusy} onClick={() => { if (window.confirm("Initialize Spicetify? This creates a backup and applies Spicetify's default modifications to Spotify.")) void runAction("setup"); }}><ShieldCheck size={15}/>{busyAction === "setup" ? "Initializing…" : "Initialize and apply Spicetify"}</button></div>}
+              {status?.spotifyFound && status?.spicetifyFound && <div className="wizard-initialize"><p>SpiceDeck will only initialize after you confirm that you are signed in to Spotify.</p><button className="button button-primary" disabled={!spotifySignedInConfirmed || !!busyAction || !!installerBusy} onClick={() => { if (window.confirm("Initialize Spicetify? This creates a backup and applies Spicetify's default modifications to Spotify.")) void runAction("setup"); }}><ShieldCheck size={15}/>{busyAction === "setup" ? "Initializing…" : "Initialize and apply Spicetify"}</button></div>}
               {status?.spicetifyFound && !status.spotifyFound && <p className="wizard-warning">Spicetify was found, but Spotify was not detected at a known path. Confirm Spotify's install type and path before applying changes.</p>}
             </div>
           </section>
