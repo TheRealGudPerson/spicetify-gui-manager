@@ -16,19 +16,17 @@ type Customization = { name: string; kind: string; path: string; enabled: boolea
 type Inventory = { themes: Customization[]; extensions: Customization[]; customApps: Customization[]; colorSchemes: string[]; currentTheme: string; currentColorScheme: string; enabledExtensions: string[]; enabledCustomApps: string[]; directories: string[]; scanDiagnostics: string[] };
 type BackupEntry = { name: string; path: string; size: number; modified: number | null; isDirectory: boolean };
 
-type Section = "Overview" | "Setup" | "Marketplace" | "Themes" | "Extensions" | "Custom Apps" | "Color Schemes" | "Configuration" | "Backups" | "Logs";
+type Section = "Overview" | "Setup" | "Marketplace" | "Library" | "Configuration" | "Backups" | "Logs";
 
 type MarketplaceCategory = "Themes" | "Extensions" | "Custom Apps";
+type LibraryCategory = MarketplaceCategory | "Color Schemes";
 type MarketplaceRepo = { id: number; full_name: string; description: string | null; html_url: string; stargazers_count: number; default_branch: string; pushed_at: string; language: string | null; archived: boolean };
 
 const navigation: { name: Section; icon: typeof LayoutDashboard; note?: string }[] = [
   { name: "Overview", icon: LayoutDashboard },
   { name: "Setup", icon: MonitorDown, note: "START" },
   { name: "Marketplace", icon: Globe, note: "NEW" },
-  { name: "Themes", icon: Palette },
-  { name: "Extensions", icon: Layers3 },
-  { name: "Custom Apps", icon: Sparkles },
-  { name: "Color Schemes", icon: WandSparkles },
+  { name: "Library", icon: Layers3 },
   { name: "Configuration", icon: Settings2 },
   { name: "Backups", icon: Archive },
   { name: "Logs", icon: Terminal }
@@ -65,6 +63,12 @@ function App() {
   const [marketplaceError, setMarketplaceError] = useState("");
   const [marketplaceLoadedCategory, setMarketplaceLoadedCategory] = useState<MarketplaceCategory | "">("");
   const [marketplaceQuery, setMarketplaceQuery] = useState("");
+  const [marketplacePreview, setMarketplacePreview] = useState<MarketplaceRepo | null>(null);
+  const [marketplacePreviewLoading, setMarketplacePreviewLoading] = useState(false);
+  const [marketplacePreviewError, setMarketplacePreviewError] = useState("");
+  const [marketplacePreviewReadme, setMarketplacePreviewReadme] = useState("");
+  const [marketplacePreviewImages, setMarketplacePreviewImages] = useState<string[]>([]);
+  const [libraryCategory, setLibraryCategory] = useState<LibraryCategory>("Themes");
   const [installerBusy, setInstallerBusy] = useState("");
   const [spotifySignedInConfirmed, setSpotifySignedInConfirmed] = useState(false);
   const [signInConfirmBusy, setSignInConfirmBusy] = useState(false);
@@ -265,7 +269,7 @@ function App() {
   }, [addLog]);
 
   useEffect(() => {
-    if (["Themes", "Extensions", "Custom Apps", "Color Schemes", "Configuration"].includes(section) && status?.spicetifyFound && spotifySignedInConfirmed) void refreshInventory();
+    if ((section === "Library" || section === "Configuration") && status?.spicetifyFound && spotifySignedInConfirmed) void refreshInventory();
     if (section === "Backups" && status?.spicetifyFound && spotifySignedInConfirmed) void refreshBackups();
   }, [section, status?.spicetifyFound, spotifySignedInConfirmed, refreshInventory, refreshBackups]);
 
@@ -461,22 +465,25 @@ function App() {
         
         {section === "Logs" && <><div className="page-heading compact"><div><div className="eyebrow"><span className="eyebrow-line"/> DIAGNOSTICS</div><h1>Activity logs<span>.</span></h1><p>Transparent command output, because mystery errors are nobody's hobby.</p></div><div style={{display:"flex",gap:8}}><button className="button button-secondary" onClick={exportLogs}><FileDown size={15}/> Export logs</button><button className="button button-secondary" onClick={() => { setLogs([]); setResult(null); }}><X size={15}/> Clear logs</button></div></div><div className="panel logs-panel"><div className="log-toolbar"><div className="search-box"><Search size={15}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Filter activity…"/></div><span>{filteredLogs.length} entries</span></div><div className="log-stream">{filteredLogs.map((item, i) => <div className="log-line" key={item.time + item.text + i}><time>{item.time}</time><span className={`log-level ${item.kind}`}>{item.kind.toUpperCase()}</span><span>{item.text}</span></div>)}{!filteredLogs.length && <div className="empty-state">No matching log entries.</div>}</div>{result && <><div className="panel-heading log-result-heading"><div><h2>Command output</h2><p>{result.command}</p></div><span className={`tag ${result.success ? "tag-good" : "tag-bad"}`}>{result.success ? "Success" : "Failed"}</span></div><pre className="config-output">{[result.stdout, result.stderr].filter(Boolean).join("\n") || "No output."}</pre></>}</div></>}
 
-        {["Themes", "Extensions", "Custom Apps", "Color Schemes"].includes(section) && <>
-          <div className="page-heading compact"><div><div className="eyebrow"><span className="eyebrow-line"/> LOCAL LIBRARY</div><h1>{section}<span>.</span></h1><p>Manage customizations already installed in your Spicetify folders.</p></div><button className="button button-secondary" onClick={() => void refreshInventory()} disabled={inventoryLoading}><RefreshCw size={14} className={inventoryLoading ? "spin" : ""}/> Scan folders</button></div>
+        {section === "Library" && <>
+          <div className="page-heading compact"><div><div className="eyebrow"><span className="eyebrow-line"/> YOUR INSTALLED CUSTOMIZATIONS</div><h1>Library<span>.</span></h1><p>Manage themes, extensions, custom apps, and color schemes already installed on this device. Marketplace is for discovery; Library is for what you already have.</p></div><button className="button button-secondary" onClick={() => void refreshInventory()} disabled={inventoryLoading}><RefreshCw size={14} className={inventoryLoading ? "spin" : ""}/> Scan folders</button></div>
+          <div className="marketplace-tabs library-tabs" role="tablist" aria-label="Installed library category">
+            {(["Themes", "Extensions", "Custom Apps", "Color Schemes"] as LibraryCategory[]).map(category => <button key={category} role="tab" aria-selected={libraryCategory === category} className={libraryCategory === category ? "marketplace-tab active" : "marketplace-tab"} onClick={() => setLibraryCategory(category)}>{category}</button>)}
+          </div>
           {notice && <div className="notice"><X size={16}/><span>{notice}</span><button onClick={() => setNotice("")}><X size={14}/></button></div>}
           {!status?.spicetifyFound && <div className="panel config-panel"><p>Install Spicetify CLI and refresh status before managing customizations.</p></div>}
           {status?.spicetifyFound && !inventory && <div className="panel config-panel"><p>{inventoryLoading ? "Scanning Spicetify directories…" : "No inventory loaded yet."}</p><button className="button button-primary" onClick={() => void refreshInventory()}>Scan now</button></div>}
-          {inventory && section === "Themes" && <div className="panel library-panel"><div className="panel-heading"><div><h2>Installed themes</h2><p>Select a theme, then apply it to Spotify.</p></div><span className="tag tag-muted">{inventory.themes.length} found</span></div>
+          {inventory && libraryCategory === "Themes" && <div className="panel library-panel"><div className="panel-heading"><div><h2>Installed themes</h2><p>Select a theme, then apply it to Spotify.</p></div><span className="tag tag-muted">{inventory.themes.length} found</span></div>
             {inventory.themes.length ? <div className="library-list">{inventory.themes.map(item => <div className="library-row" key={item.path}><div className="action-icon purple"><Palette size={17}/></div><div className="setup-label"><strong>{item.name === "marketplace" ? "marketplace · Marketplace-managed folder" : item.name}</strong><span className="path-value">{item.path}</span></div>{item.enabled ? <span className="tag tag-good">Configured as current theme</span> : <button className="button button-secondary" disabled={!!busyAction} onClick={() => void saveConfigValue("current_theme", item.name)}>Use theme</button>}</div>)}</div> : <div className="empty-state">No theme folders found in the Spicetify themes directory.</div>}
             <div className="inline-help"><FolderOpen size={15}/><span>{inventory.directories[0] ?? "Theme directory unavailable"}</span></div></div>}
-          {inventory && section === "Extensions" && <div className="panel library-panel"><div className="panel-heading"><div><h2>Installed extensions</h2><p>Enable or disable extensions in configuration, then apply changes.</p></div><span className="tag tag-muted">{inventory.extensions.length} found</span></div>
+          {inventory && libraryCategory === "Extensions" && <div className="panel library-panel"><div className="panel-heading"><div><h2>Installed extensions</h2><p>Enable or disable extensions in configuration, then apply changes.</p></div><span className="tag tag-muted">{inventory.extensions.length} found</span></div>
             {inventory.extensions.length ? <div className="library-list">{inventory.extensions.map(item => <div className="library-row" key={item.path}><div className="action-icon blue"><Layers3 size={17}/></div><div className="setup-label"><strong>{item.name}</strong><span className="path-value">{item.path}</span></div><button className={item.enabled ? "toggle-button enabled" : "toggle-button"} disabled={!!busyAction} onClick={() => void toggleCustomization(item, "extensions")} title={item.enabled ? "Disable extension" : "Enable extension"}>{item.enabled ? <ToggleRight size={24}/> : <ToggleLeft size={24}/>}<span>{item.enabled ? "Enabled" : "Disabled"}</span></button></div>)}</div> : <div className="empty-state">No extensions found in the Spicetify extensions directory.</div>}
             <div className="inline-help"><FolderOpen size={15}/><span>{inventory.directories[1] ?? "Extension directory unavailable"}</span></div></div>}
-          {inventory && section === "Custom Apps" && <div className="panel library-panel"><div className="panel-heading"><div><h2>Installed custom apps</h2><p>Toggle custom apps in configuration, then apply changes.</p></div><span className="tag tag-muted">{inventory.customApps.length} found</span></div>
+          {inventory && libraryCategory === "Custom Apps" && <div className="panel library-panel"><div className="panel-heading"><div><h2>Installed custom apps</h2><p>Toggle custom apps in configuration, then apply changes.</p></div><span className="tag tag-muted">{inventory.customApps.length} found</span></div>
             {inventory.customApps.length ? <div className="library-list">{inventory.customApps.map(item => <div className="library-row" key={item.path}><div className="action-icon mint"><Sparkles size={17}/></div><div className="setup-label"><strong>{item.name}</strong><span className="path-value">{item.path}</span></div><button className={item.enabled ? "toggle-button enabled" : "toggle-button"} disabled={!!busyAction} onClick={() => void toggleCustomization(item, "custom_apps")} title={item.enabled ? "Disable custom app" : "Enable custom app"}>{item.enabled ? <ToggleRight size={24}/> : <ToggleLeft size={24}/>}<span>{item.enabled ? "Enabled" : "Disabled"}</span></button></div>)}</div> : <div className="empty-state">No custom app folders found in the Spicetify custom apps directory.</div>}
             <div className="inline-help"><FolderOpen size={15}/><span>{inventory.directories[2] ?? "Custom app directory unavailable"}</span></div></div>}
           {inventory && <details className="panel scan-details"><summary><span><strong>Scan diagnostics</strong><small>Actual folders and configuration values SpiceDeck read</small></span><span className="tag tag-muted">{inventory.scanDiagnostics.length} checks</span></summary><div className="scan-detail-list">{inventory.scanDiagnostics.map((line) => <code key={line}>{line}</code>)}</div></details>}
-          {inventory && section === "Color Schemes" && <div className="panel library-panel"><div className="panel-heading"><div><h2>Theme color schemes</h2><p>Color schemes are discovered from the selected theme's color.ini file.</p></div><span className="tag tag-muted">{Math.max(0, inventory.colorSchemes.length - 1)} found</span></div>
+          {inventory && libraryCategory === "Color Schemes" && <div className="panel library-panel"><div className="panel-heading"><div><h2>Theme color schemes</h2><p>Color schemes are discovered from the selected theme's color.ini file.</p></div><span className="tag tag-muted">{Math.max(0, inventory.colorSchemes.length - 1)} found</span></div>
             <div className="scheme-current"><span>Current theme</span><strong>{inventory.currentTheme || "Spicetify default"}</strong><span>Current scheme</span><strong>{inventory.currentColorScheme || "Default"}</strong></div>
             {inventory.colorSchemes.length > 1 ? <div className="scheme-grid">{inventory.colorSchemes.filter(Boolean).map(scheme => <button className={scheme === inventory.currentColorScheme ? "scheme-card selected" : "scheme-card"} key={scheme} disabled={!!busyAction} onClick={() => void saveConfigValue("color_scheme", scheme)}><div className="scheme-swatches"><i/><i/><i/><i/></div><strong>{scheme}</strong><span>{scheme === inventory.currentColorScheme ? "Currently selected" : "Select scheme"}</span></button>)}</div> : <div className="empty-state">No named schemes found for this theme. Choose a theme with a color.ini file containing named sections.</div>}
             <div className="inline-help"><Palette size={15}/><span>Choose a scheme, then use Apply changes on Overview to rebuild Spotify's resources.</span></div></div>}
