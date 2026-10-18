@@ -7,7 +7,8 @@ SpiceDeck is a cross-platform desktop GUI for managing a local Spicetify install
 - Run explicit apply, backup, restore, and configuration-inspection actions.
 - Discover local themes, extensions, and custom apps.
 - First-run setup wizard with automatic Spotify and Spicetify downloads, OS-aware installation, post-install verification, and a confirmed initial backup/apply step.
-- Browse community repositories by Spicetify GitHub topic, with search, source links, stars, and update dates.
+- Browse community repositories by Spicetify GitHub topic, with search, source links, stars, update dates, and in-app README previews that display screenshots when the project documents them.
+- Use one consolidated local Library for installed themes, extensions, custom apps, and color schemes, separate from Marketplace discovery.
 - Select an installed theme and discover color-scheme sections from its `color.ini`.
 - Enable or disable discovered extensions and custom apps through Spicetify config.
 - Edit an allowlist of common configuration values.
