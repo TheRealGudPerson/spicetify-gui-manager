@@ -427,7 +427,6 @@ fn install_spicetify() -> Result<CommandResult, String> {
     let _ = fs::remove_dir_all(&temp);
     let executable = if cfg!(windows) { install_dir.join("spicetify.exe") } else { install_dir.join("spicetify") };
     if !executable.is_file() { return Err(format!("The installer finished but {} was not found.", executable.display())); }
-    if !executable.is_file() { return Err("Spicetify archive was extracted, but the executable could not be found.".into()); }
     Ok(CommandResult { success: true, command: format!("Download and install official Spicetify CLI {version}"), code: Some(0), stdout: format!("Installed official Spicetify CLI {version} to {}. CLI execution and version verification are deferred until you confirm Spotify sign-in in SpiceDeck.", executable.display()), stderr: String::new() })
 }
 
