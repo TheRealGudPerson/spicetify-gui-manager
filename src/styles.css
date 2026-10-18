@@ -166,3 +166,40 @@ button { min-height: 34px; }
 .spotify-sign-in-confirmation p { margin: 5px 0 0; color: var(--text-secondary, #9b9ba6); font-size: 13px; line-height: 1.5; }
 .spotify-sign-in-confirmation.confirmed { border-color: var(--success, #3a9b70); }
 @media (max-width: 760px) { .spotify-sign-in-confirmation, .sign-in-lock-notice { align-items: stretch; flex-direction: column; } }
+
+
+/* Marketplace detail previews and a simpler installed-library navigation. */
+.library-tabs { margin: 0 0 18px; flex-wrap: wrap; }
+.marketplace-card-footer { justify-content: flex-start; flex-wrap: wrap; }
+.marketplace-card-footer .tag { margin-right: auto; }
+.marketplace-card-footer .button { min-height: 34px; }
+.preview-backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; background: rgba(5, 8, 5, .78); backdrop-filter: blur(8px); }
+.marketplace-preview-dialog { width: min(980px, 100%); max-height: min(88vh, 1000px); overflow: auto; border: 1px solid #394238; border-radius: 16px; background: #151a15; color: #e8eee8; box-shadow: 0 24px 90px rgba(0,0,0,.5); padding: 24px; }
+.preview-dialog-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; }
+.preview-dialog-header > div { min-width: 0; }
+.preview-dialog-header h2 { margin: 8px 0; font-size: clamp(18px, 2.4vw, 25px); overflow-wrap: anywhere; }
+.preview-dialog-header p { margin: 0; color: #a4afa4; line-height: 1.6; font-size: 13px; }
+.preview-dialog-meta { display: flex; flex-wrap: wrap; gap: 14px; padding: 15px 0; margin-bottom: 16px; border-bottom: 1px solid #2b332b; color: #9da99d; font-size: 12px; }
+.preview-dialog-meta span { display: inline-flex; align-items: center; gap: 6px; }
+.preview-dialog-meta svg { color: #b2c09e; }
+.preview-image-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.preview-image-link { display: flex; flex-direction: column; gap: 8px; overflow: hidden; min-width: 0; border: 1px solid #303a30; border-radius: 10px; background: #0f130f; color: #a9b6a9; text-decoration: none; }
+.preview-image-link img { display: block; width: 100%; height: 190px; object-fit: contain; background: #0c0f0c; }
+.preview-image-link span { display: flex; align-items: center; gap: 6px; padding: 0 10px 10px; font-size: 11px; }
+.preview-readme { padding: 18px; border: 1px solid #2d352d; border-radius: 10px; background: #101410; }
+.preview-readme-heading { display: flex; align-items: center; gap: 8px; padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid #2b332b; color: #b9d8a2; }
+.preview-readme h3 { margin: 17px 0 8px; font-size: 14px; }
+.preview-readme p { margin: 8px 0; color: #a9b4a9; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.preview-readme .preview-readme-bullet { padding-left: 12px; }
+.preview-loading { min-height: 180px; }
+.preview-dialog-footer { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 9px; margin-top: 18px; padding-top: 16px; border-top: 1px solid #2b332b; }
+.preview-dialog-footer > span { flex: 1; min-width: 220px; color: #7f8b80; font-size: 11px; line-height: 1.5; }
+@media(max-width: 700px) {
+  .preview-backdrop { padding: 8px; }
+  .marketplace-preview-dialog { max-height: 94vh; padding: 16px; border-radius: 12px; }
+  .preview-image-grid { grid-template-columns: 1fr; }
+  .preview-image-link img { height: 220px; }
+  .preview-dialog-footer { align-items: stretch; flex-direction: column; }
+  .preview-dialog-footer > span { min-width: 0; }
+  .preview-dialog-footer .button { justify-content: center; }
+}
