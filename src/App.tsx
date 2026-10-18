@@ -266,16 +266,16 @@ function App() {
       }
       const data = await response.json() as { content?: string; encoding?: string };
       if (!data.content || data.encoding !== "base64") throw new Error("GitHub did not return a readable README.");
-      const binary = atob(data.content.replace(/\\s/g, ""));
+      const binary = atob(data.content.replace(/\s/g, ""));
       const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
       const readme = new TextDecoder().decode(bytes);
-      const markdownImages = [...readme.matchAll(/!\\[[^\\]]*\\]\\((<?)([^)\\s>]+)(?:\\s+[^)]*)?\\)?/g)]
+      const markdownImages = [...readme.matchAll(/!\[[^\]]*\]\((<?)([^)\s>]+)(?:\s+[^)]*)?\)?/g)]
         .map(match => match[2])
         .map(source => {
           try {
             const url = new URL(source.replace(/^<|>$/g, ""), "https://raw.githubusercontent.com/" + item.full_name + "/" + item.default_branch + "/README.md");
             const allowedHosts = ["raw.githubusercontent.com", "github.com", "user-images.githubusercontent.com", "avatars.githubusercontent.com"];
-            const looksLikeImage = /\\.(png|jpe?g|gif|webp|svg)(?:$|\\?)/i.test(url.href) || url.pathname.includes("/user-attachments/assets/");
+            const looksLikeImage = /\.(png|jpe?g|gif|webp|svg)(?:$|\?)/i.test(url.href) || url.pathname.includes("/user-attachments/assets/");
             return url.protocol === "https:" && allowedHosts.includes(url.hostname) && looksLikeImage ? url.href : null;
           } catch { return null; }
         })
