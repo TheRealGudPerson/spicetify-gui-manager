@@ -713,6 +713,7 @@ fn spicetify_backup_directory() -> Result<PathBuf, String> {
     ))
 }
 
+#[tauri::command]
 fn get_backups() -> Result<Vec<BackupEntry>, String> {
     require_spotify_sign_in()?;
     let backup_dir = spicetify_backup_directory()?;
