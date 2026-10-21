@@ -677,14 +677,17 @@ fn spicetify_backup_directory() -> Result<PathBuf, String> {
         }
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     {
         if let Ok(xdg_state) = std::env::var("XDG_STATE_HOME") {
             if !xdg_state.trim().is_empty() {
                 candidates.push(PathBuf::from(xdg_state).join("spicetify").join("Backup"));
             }
         }
+    }
 
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
         if let Ok(home) = std::env::var("HOME") {
             candidates.push(PathBuf::from(home).join(".local").join("state").join("spicetify").join("Backup"));
         }
@@ -703,9 +706,9 @@ fn spicetify_backup_directory() -> Result<PathBuf, String> {
     let searched = candidates.iter()
         .map(|path| path.display().to_string())
         .collect::<Vec<_>>()
-        .join("\\n");
+        .join("\n");
     Err(format!(
-        "Could not locate Spicetify's backup directory. Spicetify stores backups under its state directory, usually ~/.local/state/spicetify/Backup on Linux. Checked:\\n{}",
+        "Could not locate Spicetify's backup directory. Spicetify stores backups under its state directory, usually ~/.local/state/spicetify/Backup on Linux. Checked:\n{}",
         if searched.is_empty() { "(no standard locations could be resolved)".to_string() } else { searched }
     ))
 }
