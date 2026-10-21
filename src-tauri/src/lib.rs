@@ -657,21 +657,72 @@ fn set_config_value(key: String, value: String) -> Result<CommandResult, String>
 }
 
 #[tauri::command]
+fn spicetify_backup_directory() -> Result<PathBuf, String> {
+    // Spicetify stores state separately from its configuration and CLI installation.
+    // On Linux and macOS the default is ~/.local/state/spicetify/Backup; on
+    // Windows it is %APPDATA%/spicetify/Backup. SPICETIFY_STATE overrides the
+    // state folder itself, rather than acting as a parent directory.
+    let mut candidates = Vec::new();
+
+    if let Ok(state) = std::env::var("SPICETIFY_STATE") {
+        if !state.trim().is_empty() {
+            candidates.push(PathBuf::from(state));
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            candidates.push(PathBuf::from(appdata).join("spicetify").join("Backup"));
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(xdg_state) = std::env::var("XDG_STATE_HOME") {
+            if !xdg_state.trim().is_empty() {
+                candidates.push(PathBuf::from(xdg_state).join("spicetify").join("Backup"));
+            }
+        }
+
+        if let Ok(home) = std::env::var("HOME") {
+            candidates.push(PathBuf::from(home).join(".local").join("state").join("spicetify").join("Backup"));
+        }
+    }
+
+    // Older installs and custom layouts may still use the config directory.
+    if let Some(config) = config_directory() {
+        candidates.push(config.join("Backup"));
+    }
+
+    candidates.dedup();
+    if let Some(path) = candidates.iter().find(|path| path.is_dir()) {
+        return Ok(path.clone());
+    }
+
+    let searched = candidates.iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join("\\n");
+    Err(format!(
+        "Could not locate Spicetify's backup directory. Spicetify stores backups under its state directory, usually ~/.local/state/spicetify/Backup on Linux. Checked:\\n{}",
+        if searched.is_empty() { "(no standard locations could be resolved)".to_string() } else { searched }
+    ))
+}
+
 fn get_backups() -> Result<Vec<BackupEntry>, String> {
     require_spotify_sign_in()?;
-    let backup_dir = cli_path("backup")
-        .filter(|path| path.is_dir())
-        .or_else(|| config_directory().map(|path| path.join("Backup")).filter(|path| path.is_dir()))
-        .or_else(|| cli_path("userdata").map(|path| path.join("Backup")).filter(|path| path.is_dir()))
-        .ok_or_else(|| "Could not locate the Spicetify backup directory.".to_string())?;
-    if !backup_dir.exists() {
-        return Ok(Vec::new());
-    }
+    let backup_dir = spicetify_backup_directory()?;
     let mut backups = Vec::new();
-    for entry in fs::read_dir(&backup_dir).map_err(|error| format!("Could not read backup directory: {error}"))?.flatten() {
+    for entry in fs::read_dir(&backup_dir)
+        .map_err(|error| format!("Could not read Spicetify backup directory {}: {error}", backup_dir.display()))?
+        .flatten()
+    {
         let path = entry.path();
         let metadata = match entry.metadata() { Ok(value) => value, Err(_) => continue };
-        let modified = metadata.modified().ok().and_then(|time| time.duration_since(UNIX_EPOCH).ok()).map(|duration| duration.as_secs());
+        let modified = metadata.modified().ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|duration| duration.as_secs());
         backups.push(BackupEntry {
             name: entry.file_name().to_string_lossy().to_string(),
             path: path.to_string_lossy().to_string(),
