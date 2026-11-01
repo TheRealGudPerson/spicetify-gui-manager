@@ -63,7 +63,7 @@ Tauri refuses unsigned updates. Before publishing releases, configure a signing 
    - `TAURI_SIGNING_PRIVATE_KEY`: the contents of `~/.tauri/spicedeck.key`
    - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: the password used when generating the key (leave it empty only if you generated an unencrypted key).
 4. Keep the private key and password out of the repository. Do not commit the private key or paste it into issues/chats.
-5. Bump the version in both `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` to the same new semantic version, commit the change, then push a matching tag such as `v0.2.0`. The GitHub Actions workflow builds Windows, Linux, and macOS release artifacts and publishes the signed updater metadata.
+5. Bump the version in both `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` to the same new semantic version. Build each platform's release bundle manually with the Tauri CLI, sign the updater artifacts with the private key, then create a GitHub Release and upload the installers plus signed updater metadata. This repository currently has no GitHub Actions workflows, so release builds and publishing are manual.
 
 The updater cannot work in installed builds until the public key and GitHub Actions secrets are configured and the first signed GitHub Release has been published. The public key is safe to commit; the private key is not.
 
