@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -12,6 +13,7 @@ import {
 
 type Status = { platform: string; spicetifyFound: boolean; version: string | null; spotifyFound: boolean; spotifyCompatibility: "compatible" | "needs_configuration" | "unsupported" | "not_installed" | string; spotifyDetails: string; spotifyPath: string | null; prefsPath: string | null; configPath: string | null };
 type CommandResult = { success: boolean; command: string; code: number | null; stdout: string; stderr: string };
+type InstallerProgress = { target: "spotify" | "spicetify"; phase: "downloading" | "installing" | "opening" | "verifying" | "complete" | "failed"; message: string };
 type Customization = { name: string; kind: string; path: string; enabled: boolean };
 type Inventory = { themes: Customization[]; extensions: Customization[]; customApps: Customization[]; colorSchemes: string[]; currentTheme: string; currentColorScheme: string; enabledExtensions: string[]; enabledCustomApps: string[]; directories: string[]; scanDiagnostics: string[] };
 type BackupEntry = { name: string; path: string; size: number; modified: number | null; isDirectory: boolean };
@@ -36,6 +38,32 @@ const demoLog = [
   { time: "Just now", text: "SpiceDeck session started", kind: "info" },
   { time: "Ready", text: "Waiting for a status check", kind: "muted" }
 ];
+
+
+function InstallerProgressPanel({ target, progress }: { target: "spotify" | "spicetify"; progress: InstallerProgress | null }) {
+  if (!progress || progress.target !== target) return null;
+  const stages = target === "spotify"
+    ? [{ id: "downloading", label: "Downloading" }, { id: "installing", label: "Installing" }, { id: "opening", label: "Opening Spotify" }]
+    : [{ id: "downloading", label: "Downloading" }, { id: "installing", label: "Installing" }, { id: "verifying", label: "Verifying CLI" }];
+  const doneAll = progress.phase === "complete";
+  const failed = progress.phase === "failed";
+  const index = doneAll ? stages.length : stages.findIndex(stage => stage.id === progress.phase);
+  const percent = doneAll ? 100 : failed ? Math.max(8, Math.round(Math.max(index, 0) / stages.length * 100)) : Math.max(8, Math.round((Math.max(index, 0) + .5) / stages.length * 100));
+  return <div className={"installer-progress " + (doneAll ? "is-complete" : failed ? "has-error" : "")} aria-live="polite">
+    <div className="installer-progress-top"><strong>{target === "spotify" ? "Spotify installation" : "Spicetify installation"}</strong><span>{percent}%</span></div>
+    <div className="installer-progress-track"><span style={{ width: percent + "%" }}/></div>
+    <div className="installer-stage-list">{stages.map((stage,i) => {
+      const complete = doneAll || (!failed && i < index);
+      const active = !doneAll && !failed && i === index;
+      const isFailed = failed && i === Math.max(0,index);
+      return <div className={"installer-stage " + (complete ? "done" : active ? "active" : isFailed ? "failed" : "")} key={stage.id}>
+        <span className="installer-stage-indicator">{complete ? <Check size={12}/> : isFailed ? <X size={12}/> : active ? <LoaderCircle size={12} className="spin"/> : <span/>}</span>
+        <span>{stage.label}</span><small>{complete ? "Complete" : active ? "In progress" : isFailed ? "Failed" : "Waiting"}</small>
+      </div>;
+    })}</div>
+    <p className="installer-progress-message">{progress.message}</p>
+  </div>;
+}
 
 function App() {
   const [section, setSection] = useState<Section>("Overview");
@@ -70,6 +98,7 @@ function App() {
   const [marketplacePreviewImages, setMarketplacePreviewImages] = useState<string[]>([]);
   const [libraryCategory, setLibraryCategory] = useState<LibraryCategory>("Themes");
   const [installerBusy, setInstallerBusy] = useState("");
+  const [installerProgress, setInstallerProgress] = useState<InstallerProgress | null>(null);
   const [spotifySignedInConfirmed, setSpotifySignedInConfirmed] = useState(false);
   const [signInConfirmBusy, setSignInConfirmBusy] = useState(false);
 
@@ -94,6 +123,12 @@ function App() {
   useEffect(() => { void getVersion().then(setAppVersion).catch(() => undefined); }, []);
 
   useEffect(() => { void refreshStatus(); }, [refreshStatus]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<InstallerProgress>("installer-progress", event => setInstallerProgress(event.payload)).then(stop => { unlisten = stop; }).catch(error => addLog("Installer progress listener failed: " + String(error), "warning"));
+    return () => { unlisten?.(); };
+  }, [addLog]);
 
   const confirmSpotifySignedIn = useCallback(async () => {
     setSignInConfirmBusy(true);
@@ -189,6 +224,7 @@ function App() {
   const installSoftware = useCallback(async (target: "spotify" | "spicetify") => {
     if (installerBusy) return;
     setInstallerBusy(target);
+    setInstallerProgress({ target, phase: "downloading", message: target === "spotify" ? "Preparing Spotify download…" : "Fetching the latest Spicetify release…" });
     setNotice("");
     setResult(null);
     addLog(target === "spotify" ? "Starting OS-aware Spotify installation" : "Downloading the official Spicetify CLI release", "info");
@@ -199,9 +235,11 @@ function App() {
       if (response.stdout.trim()) addLog(response.stdout.trim().slice(-1200), "output");
       if (response.stderr.trim()) addLog(response.stderr.trim().slice(-1200), response.success ? "warning" : "error");
       addLog(response.success ? (target === "spotify" ? "Spotify installation completed" : "Spicetify installation completed") : "Installation failed", response.success ? "success" : "error");
+      if (response.success) setInstallerProgress({ target, phase: "complete", message: target === "spotify" ? "Spotify installation finished." : "Spicetify CLI installation finished." });
       if (!response.success) setNotice(response.stderr || response.stdout || "The installer did not report success.");
       await refreshStatus();
     } catch (error) {
+      setInstallerProgress({ target, phase: "failed", message: String(error) });
       setNotice(String(error));
       addLog("Installation failed: " + String(error), "error");
     } finally {
@@ -431,19 +469,21 @@ function App() {
               {status?.platform === "macOS" && <button className="button button-primary" onClick={() => void installSoftware("spotify")} disabled={!!installerBusy}><Download size={15}/> {installerBusy === "spotify" ? "Downloading and installing…" : "Download and install Spotify"}</button>}
               {status?.platform === "Linux" && <div className="wizard-platform-note"><strong>Linux installation depends on your distribution.</strong><p>SpiceDeck checks your Linux distribution and chooses the official Spotify APT repository on Debian/Ubuntu-based systems, or a user-scoped Flatpak install when Flatpak is available. Snap is not used because Spicetify cannot modify Snap Spotify.</p><button className="button button-primary" onClick={() => void installSoftware("spotify")} disabled={!!installerBusy}><Download size={15}/> {installerBusy === "spotify" ? "Installing Spotify…" : "Install Spotify automatically"}</button></div>}
               {!status?.platform && <p>Detecting your operating system…</p>}
+              <InstallerProgressPanel target="spotify" progress={installerProgress}/>
               <div className="wizard-footnote">After installing, launch Spotify and sign in. Spicetify recommends leaving it open for at least 60 seconds so it can generate the files it needs.</div>
             </div>
           </section>}
-          {status?.spotifyFound && status.spotifyCompatibility !== "unsupported" && <section className="panel wizard-card wizard-card-done"><div className="wizard-card-icon"><Check size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 1 · {status.spotifyCompatibility === "compatible" ? "COMPATIBLE" : "CONFIGURATION REQUIRED"}</div><h2>{status.spotifyCompatibility === "compatible" ? "Spotify is compatible" : "Spotify needs configuration"}</h2><p>{status.spotifyDetails}</p>{status.spotifyPath && <p className="wizard-footnote"><strong>Spotify path:</strong> <code>{status.spotifyPath}</code></p>}{status.prefsPath && <p className="wizard-footnote"><strong>Preferences:</strong> <code>{status.prefsPath}</code></p>}</div></section>}
+          {status?.spotifyFound && status.spotifyCompatibility !== "unsupported" && <section className="panel wizard-card wizard-card-done"><div className="wizard-card-icon"><Check size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 1 · {status.spotifyCompatibility === "compatible" ? "COMPATIBLE" : "CONFIGURATION REQUIRED"}</div><h2>{status.spotifyCompatibility === "compatible" ? "Spotify is compatible" : "Spotify needs configuration"}</h2><p>{status.spotifyDetails}</p>{status.spotifyPath && <p className="wizard-footnote"><strong>Spotify path:</strong> <code>{status.spotifyPath}</code></p>}{status.prefsPath && <p className="wizard-footnote"><strong>Preferences:</strong> <code>{status.prefsPath}</code></p>}<InstallerProgressPanel target="spotify" progress={installerProgress}/></div></section>}
           {!status?.spicetifyFound && <section className="panel wizard-card">
             <div className="wizard-card-icon cli"><Terminal size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 2</div><h2>Install Spicetify CLI</h2><p>SpiceDeck downloads the latest stable CLI release directly from the official Spicetify GitHub releases, selects the correct OS and CPU build, installs it in your user profile, and verifies the executable.</p>
 <button className="button button-primary" onClick={() => void installSoftware("spicetify")} disabled={!!installerBusy || !status?.spotifyFound || status.spotifyCompatibility === "unsupported"}><Download size={15}/>{installerBusy === "spicetify" ? "Downloading and installing…" : "Install Spicetify automatically"}</button>
               {status?.platform === "Windows" && <p className="wizard-footnote">SpiceDeck installs the official release into your user-local application data folder. It does not require a global PATH change.</p>}
               {(status?.platform === "Linux" || status?.platform === "macOS") && <p className="wizard-footnote">SpiceDeck installs the official release into your user profile without running as root or modifying shell startup files.</p>}
+              <InstallerProgressPanel target="spicetify" progress={installerProgress}/>
               <button className="text-button wizard-doc-link" onClick={() => window.open("https://spicetify.co/docs/getting-started/", "_blank", "noopener,noreferrer")}>Read the official Spicetify guide <ExternalLink size={13}/></button>
             </div>
           </section>}
-          {status?.spicetifyFound && <section className="panel wizard-card wizard-card-done"><div className="wizard-card-icon"><Check size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 2 COMPLETE</div><h2>Spicetify CLI detected</h2><p>Version {status.version ?? "detected"}. SpiceDeck can now use its existing maintenance and customization features.</p></div></section>}
+          {status?.spicetifyFound && <section className="panel wizard-card wizard-card-done"><div className="wizard-card-icon"><Check size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 2 COMPLETE</div><h2>Spicetify CLI detected</h2><p>Version {status.version ?? "detected"}. SpiceDeck can now use its existing maintenance and customization features.</p><InstallerProgressPanel target="spicetify" progress={installerProgress}/></div></section>}
           <section className="panel wizard-card">
             <div className="wizard-card-icon verify"><ShieldCheck size={21}/></div><div className="wizard-card-body"><div className="eyebrow">STEP 3</div><h2>Verify and continue</h2><p><strong>Required before any Spicetify command:</strong> open the Spotify desktop app, sign in to your account, and leave it running for at least 60 seconds. SpiceDeck cannot independently verify Spotify account authentication, so it requires your explicit confirmation. The backend blocks all Spicetify CLI execution and file-changing operations until you confirm.</p>
               <div className="wizard-checklist"><span className={status?.spotifyFound ? "checklist-item done" : "checklist-item"}>{status?.spotifyFound ? <Check size={14}/> : <span/>} Spotify detected</span><span className={status?.spicetifyFound ? "checklist-item done" : "checklist-item"}>{status?.spicetifyFound ? <Check size={14}/> : <span/>} Spicetify CLI detected</span></div>
