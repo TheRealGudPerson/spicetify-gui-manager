@@ -38,16 +38,13 @@ Install the Tauri prerequisites for your Fedora version using the official Tauri
 
 ## Current command contract
 
-The backend currently allows only these fixed actions:
+The backend exposes fixed, allowlisted operations for status detection, official Spotify and Spicetify installation, customization discovery, backup listing, configuration inspection and writes, and the explicit Spicetify actions `apply`, `backup`, `restore`, and initial `backup apply`.
 
-- `spicetify --version` for detection
-- `spicetify path prefs` for a displayed path
-- `spicetify apply`
-- `spicetify backup`
-- `spicetify restore`
-- `spicetify config`
+Spotify detection reports whether an installation is compatible, needs configuration, is unsupported, or is missing. Linux detection recognizes APT/system packages, Arch/AUR, spotify-launcher, Flatpak, and unsupported Snap installs. Windows detection distinguishes the standard desktop installer from Microsoft Store Spotify. macOS detection checks the standard application bundle locations.
 
-The app never requests root/Administrator permissions. It does not install Spicetify automatically yet. Read the official installation guide before installing: https://spicetify.app/docs/advanced-usage/installation
+The app does not silently elevate routine operations. The official APT installer uses the OS authorization prompt; Flatpak installation is user-scoped. Some Linux Spotify packages require the user to grant write access to the Spotify directory and its `Apps` folder, and Flatpak requires explicit `spotify_path` and `prefs_path` configuration. Consult https://spicetify.app/docs/getting-started for distribution-specific instructions.
+
+GitHub Actions workflows are currently removed. Run frontend builds and Rust checks manually before merging or releasing.
 
 ## Security notes
 
