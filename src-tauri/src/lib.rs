@@ -477,6 +477,9 @@ fn detect_spotify() -> bool {
 }
 
 fn detect_spotify_installation() -> SpotifyDetection {
+    #[cfg(target_os = "windows")]
+    let home = std::env::var("USERPROFILE").unwrap_or_default();
+    #[cfg(not(target_os = "windows"))]
     let home = std::env::var("HOME").unwrap_or_default();
     #[cfg(target_os = "windows")]
     {
