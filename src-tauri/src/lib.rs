@@ -482,11 +482,26 @@ fn detect_spotify_installation() -> SpotifyDetection {
     {
         let roaming = std::env::var("APPDATA").unwrap_or_default();
         let local = std::env::var("LOCALAPPDATA").unwrap_or_default();
+        let scoop = std::env::var("SCOOP").unwrap_or_else(|_| Path::new(&home).join("scoop").to_string_lossy().to_string());
         let candidates = [
             Path::new(&roaming).join("Spotify"),
             Path::new(&local).join("Spotify"),
             Path::new(&local).join("Programs/Spotify"),
         ];
+        let scoop_path = Path::new(&scoop).join("apps/spotify/current");
+        if scoop_path.join("Spotify.exe").is_file() {
+            let prefs = Path::new(&roaming).join("Spotify/prefs");
+            return SpotifyDetection {
+                installed: true,
+                compatibility: "needs_configuration".into(),
+                details: format!("Scoop Spotify detected at {}. Spicetify requires spotify_path to be set to this directory.{}",
+                    scoop_path.display(),
+                    prefs.is_file().then(|| format!(" Preferences file: {}.", prefs.display()))
+                        .unwrap_or_else(|| " Launch Spotify and sign in for at least 60 seconds to create its preferences file.".into())),
+                spotify_path: Some(scoop_path.to_string_lossy().to_string()),
+                prefs_path: prefs.is_file().then(|| prefs.to_string_lossy().to_string()),
+            };
+        }
         if let Some(path) = candidates.iter().find(|path| path.join("Spotify.exe").is_file()) {
             let prefs = Path::new(&roaming).join("Spotify/prefs");
             return SpotifyDetection {
