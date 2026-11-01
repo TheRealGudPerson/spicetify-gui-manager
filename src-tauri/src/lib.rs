@@ -366,7 +366,7 @@ fn install_spotify() -> Result<CommandResult, String> {
             let keyring = temp.join("spotify-keyring.gpg");
             download_file("https://download.spotify.com/debian/pubkey_C85668DF69375001.gpg", &key_download)?;
             run_checked(Command::new("gpg").args(["--dearmor", "--yes", "--output"]).arg(&keyring).arg(&key_download), "Prepare Spotify repository signing key")?;
-            let script = "install -D -m 0644 \"$1\" /usr/share/keyrings/spotify.gpg && printf '%s\\n' 'deb http://repository.spotify.com stable non-free' > /etc/apt/sources.list.d/spotify.list && apt-get update && apt-get install -y spotify-client";
+            let script = "install -D -m 0644 \"$1\" /usr/share/keyrings/spotify.gpg && printf '%s\\n' 'deb [signed-by=/usr/share/keyrings/spotify.gpg] http://repository.spotify.com stable non-free' > /etc/apt/sources.list.d/spotify.list && apt-get update && apt-get install -y spotify-client";
             let output = run_checked(Command::new("pkexec").arg("/bin/sh").arg("-c").arg(script).arg("spicedeck-install").arg(&keyring), "Install Spotify from its official APT repository; the operating system may request authorization")?;
             let _ = fs::remove_dir_all(&temp);
             if !detect_spotify() { return Err("The package manager reported success, but Spotify was not detected afterward. Refresh status.".into()); }
@@ -538,16 +538,6 @@ fn detect_spotify_installation() -> SpotifyDetection {
         ];
         let prefs = prefs_candidates.iter().find(|path| path.is_file()).cloned();
 
-        if Path::new("/snap/bin/spotify").exists()
-            || Path::new("/var/lib/snapd/snap/bin/spotify").exists() {
-            return SpotifyDetection {
-                installed: true,
-                compatibility: "unsupported".into(),
-                details: "Snap Spotify was detected. Spicetify cannot modify Snap installations. Install Spotify through APT or a supported Flatpak distribution instead.".into(),
-                ..Default::default()
-            };
-        }
-
         let candidates = [
             PathBuf::from("/usr/share/spotify"),
             PathBuf::from("/usr/lib/spotify"),
@@ -557,14 +547,22 @@ fn detect_spotify_installation() -> SpotifyDetection {
         ];
         if let Some(path) = candidates.iter().find(|path| path.join("Apps").is_dir() || path.join("spotify").is_file() || path.is_dir()) {
             let prefs_path = prefs.clone();
+            let writable = Command::new("sh")
+                .args(["-c", "test -w \"$1\" && test -w \"$1/Apps\"", "spicedeck-check"])
+                .arg(path)
+                .status()
+                .map(|status| status.success())
+                .unwrap_or(false);
+            let configured = writable && prefs_path.is_some();
             let install_kind = if path.as_path() == Path::new("/opt/spotify") { "Arch/AUR" }
                 else if path.as_path() == Path::new("/usr/share/spotify") || path.as_path() == Path::new("/usr/lib/spotify") { "APT/system package" }
                 else { "user-local Spotify installation" };
             return SpotifyDetection {
                 installed: true,
-                compatibility: "needs_configuration".into(),
-                details: format!("{} detected at {}. Spicetify requires write access to the Spotify directory (including its Apps folder).{}",
+                compatibility: if configured { "compatible" } else { "needs_configuration" }.into(),
+                details: format!("{} detected at {}. {}{}",
                     install_kind, path.display(),
+                    if writable { "Spotify files are writable by your user." } else { "Spicetify needs write access to the Spotify directory and its Apps folder. Follow the official Spicetify permissions instructions." },
                     prefs_path.as_ref().map(|p| format!(" Preferences file: {}.", p.display()))
                         .unwrap_or_else(|| " The Spotify prefs file was not found; launch Spotify and sign in for at least 60 seconds.".into())),
                 spotify_path: Some(path.to_string_lossy().to_string()),
@@ -592,6 +590,17 @@ fn detect_spotify_installation() -> SpotifyDetection {
                 }
             }
         }
+
+        if Path::new("/snap/bin/spotify").exists()
+            || Path::new("/var/lib/snapd/snap/bin/spotify").exists() {
+            return SpotifyDetection {
+                installed: true,
+                compatibility: "unsupported".into(),
+                details: "Snap Spotify was detected. Spicetify cannot modify Snap installations. Install Spotify through APT or a supported Flatpak distribution instead.".into(),
+                ..Default::default()
+            };
+        }
+
     }
     SpotifyDetection {
         installed: false,
