@@ -582,10 +582,34 @@ fn detect_spotify_installation() -> SpotifyDetection {
     }
     #[cfg(target_os = "linux")]
     {
-        let prefs_candidates = [
-            Path::new(&home).join(".config/spotify/prefs"),
-            Path::new(&home).join(".var/app/com.spotify.Client/config/spotify/prefs"),
-        ];
+        // Flatpak exposes Spotify's per-app config directory inside the sandbox
+        // through XDG_CONFIG_HOME. Resolve it from the app environment first,
+        // then check the documented host-side per-app data location.
+        let mut prefs_candidates = Vec::new();
+        if let Ok(xdg_config) = std::env::var("XDG_CONFIG_HOME") {
+            if !xdg_config.trim().is_empty() {
+                prefs_candidates.push(PathBuf::from(xdg_config).join("spotify/prefs"));
+            }
+        }
+        prefs_candidates.push(Path::new(&home).join(".var/app/com.spotify.Client/config/spotify/prefs"));
+        prefs_candidates.push(Path::new(&home).join(".config/spotify/prefs"));
+
+        // Ask the installed Flatpak for its actual sandbox config path. This
+        // handles non-default Flatpak data layouts without guessing from HOME.
+        if command_available("flatpak") {
+            if let Ok(output) = Command::new("flatpak")
+                .args(["run", "--command=sh", "com.spotify.Client", "-c", "printf '%s\\n' \"$XDG_CONFIG_HOME/spotify/prefs\""])
+                .output()
+            {
+                if output.status.success() {
+                    let reported = PathBuf::from(output_text(&output.stdout));
+                    if !reported.as_os_str().is_empty() {
+                        prefs_candidates.insert(0, reported);
+                    }
+                }
+            }
+        }
+        prefs_candidates.dedup();
         let prefs = prefs_candidates.iter().find(|path| path.is_file()).cloned();
 
         let candidates = [
