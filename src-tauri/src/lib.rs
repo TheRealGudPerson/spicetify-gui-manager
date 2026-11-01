@@ -1,4 +1,5 @@
 use serde::Serialize;
+use tauri::{AppHandle, Emitter};
 
 // Session-scoped safety latch: require a fresh sign-in confirmation after every app launch.
 static SPOTIFY_SIGN_IN_CONFIRMED: AtomicBool = AtomicBool::new(false);
@@ -303,16 +304,28 @@ fn linux_distribution() -> (String, String) {
     (id, like)
 }
 
-#[tauri::command]
-fn install_software(target: String) -> Result<CommandResult, String> {
-    match target.as_str() {
-        "spotify" => install_spotify(),
-        "spicetify" => install_spicetify(),
-        _ => Err("Unsupported installer target. Choose Spotify or Spicetify.".into()),
-    }
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct InstallerProgress { target: String, phase: String, message: String }
+
+fn emit_install_progress(app: &AppHandle, target: &str, phase: &str, message: impl Into<String>) {
+    let _ = app.emit("installer-progress", InstallerProgress { target: target.into(), phase: phase.into(), message: message.into() });
 }
 
-fn install_spotify() -> Result<CommandResult, String> {
+#[tauri::command]
+async fn install_software(app: AppHandle, target: String) -> Result<CommandResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let result = match target.as_str() {
+            "spotify" => install_spotify(&app),
+            "spicetify" => install_spicetify(&app),
+            _ => Err("Unsupported installer target. Choose Spotify or Spicetify.".into()),
+        };
+        if let Err(error) = &result { emit_install_progress(&app, &target, "failed", error.clone()); }
+        result
+    }).await.map_err(|error| format!("Installer task failed: {error}"))?
+}
+
+fn install_spotify(app: &AppHandle) -> Result<CommandResult, String> {
     let current = detect_spotify_installation();
     if current.installed && current.compatibility != "unsupported" {
         return Err("A Spotify installation is already present. Refresh status and review its compatibility details before installing another copy.".into());
@@ -322,8 +335,12 @@ fn install_spotify() -> Result<CommandResult, String> {
     {
         let temp = install_temp_dir()?;
         let installer = temp.join("SpotifySetup.exe");
+        emit_install_progress(app, "spotify", "downloading", "Downloading Spotify from its official CDN.");
         download_file("https://download.scdn.co/SpotifySetup.exe", &installer)?;
+        emit_install_progress(app, "spotify", "installing", "Running the Spotify desktop installer.");
         let output = run_checked(Command::new(&installer).arg("/silent"), "Spotify installer")?;
+        emit_install_progress(app, "spotify", "opening", "Launching Spotify.");
+        let _ = Command::new("cmd").args(["/C", "start", "", "spotify:"]).spawn();
         let _ = fs::remove_dir_all(&temp);
         if !detect_spotify() {
             return Err("Spotify's installer exited, but SpiceDeck could not detect Spotify afterward. Refresh status and check the installer.".into());
@@ -337,7 +354,9 @@ fn install_spotify() -> Result<CommandResult, String> {
         let image = temp.join("Spotify.dmg");
         let mount = temp.join("mounted");
         fs::create_dir_all(&mount).map_err(|error| error.to_string())?;
+        emit_install_progress(app, "spotify", "downloading", "Downloading Spotify disk image.");
         download_file("https://download.scdn.co/Spotify.dmg", &image)?;
+        emit_install_progress(app, "spotify", "installing", "Mounting the disk image and copying Spotify into Applications.");
         run_checked(Command::new("hdiutil").args(["attach", "-nobrowse", "-readonly", "-mountpoint"]).arg(&mount).arg(&image), "Mount Spotify disk image")?;
         let home = std::env::var("HOME").map_err(|_| "Could not locate the user's home directory.".to_string())?;
         let applications = PathBuf::from(home).join("Applications");
@@ -352,6 +371,8 @@ fn install_spotify() -> Result<CommandResult, String> {
         copy_result?;
         detach_result?;
         if !destination.exists() { return Err("Spotify was copied but its application bundle could not be verified.".into()); }
+        emit_install_progress(app, "spotify", "opening", "Launching Spotify.");
+        let _ = Command::new("open").arg(&destination).spawn();
         return Ok(CommandResult { success: true, command: "Download and install Spotify for macOS".into(), code: Some(0), stdout: format!("Installed to {}", destination.display()), stderr: String::new() });
     }
 
@@ -364,21 +385,29 @@ fn install_spotify() -> Result<CommandResult, String> {
             let temp = install_temp_dir()?;
             let key_download = temp.join("spotify-key.gpg");
             let keyring = temp.join("spotify-keyring.gpg");
+            emit_install_progress(app, "spotify", "downloading", "Downloading the Spotify repository signing key.");
             download_file("https://download.spotify.com/debian/pubkey_C85668DF69375001.gpg", &key_download)?;
             run_checked(Command::new("gpg").args(["--dearmor", "--yes", "--output"]).arg(&keyring).arg(&key_download), "Prepare Spotify repository signing key")?;
             let script = "install -D -m 0644 \"$1\" /usr/share/keyrings/spotify.gpg && printf '%s\\n' 'deb [signed-by=/usr/share/keyrings/spotify.gpg] http://repository.spotify.com stable non-free' > /etc/apt/sources.list.d/spotify.list && apt-get update && apt-get install -y spotify-client";
+            emit_install_progress(app, "spotify", "installing", "Adding the official Spotify repository and installing the desktop package.");
             let output = run_checked(Command::new("pkexec").arg("/bin/sh").arg("-c").arg(script).arg("spicedeck-install").arg(&keyring), "Install Spotify from its official APT repository; the operating system may request authorization")?;
             let _ = fs::remove_dir_all(&temp);
             if !detect_spotify() { return Err("The package manager reported success, but Spotify was not detected afterward. Refresh status.".into()); }
+            emit_install_progress(app, "spotify", "opening", "Launching Spotify.");
+            let _ = Command::new("spotify").spawn();
             return Ok(CommandResult { success: true, command: "Install Spotify from the official Spotify APT repository".into(), code: output.status.code(), stdout: output_text(&output.stdout), stderr: output_text(&output.stderr) });
         }
         if command_available("flatpak") {
+            emit_install_progress(app, "spotify", "downloading", "Checking Flathub and preparing the Spotify package.");
             let remotes = Command::new("flatpak").args(["remotes", "--user", "--columns=name"]).output().ok().map(|output| output_text(&output.stdout)).unwrap_or_default();
             if !remotes.lines().any(|line| line.trim() == "flathub") {
                 run_checked(Command::new("flatpak").args(["remote-add", "--user", "--if-not-exists", "flathub", "https://flathub.org/repo/flathub.flatpakrepo"]), "Add the Flathub user repository")?;
             }
+            emit_install_progress(app, "spotify", "installing", "Installing Spotify from Flathub. This may take a few minutes.");
             let output = run_checked(Command::new("flatpak").args(["install", "--user", "--noninteractive", "-y", "flathub", "com.spotify.Client"]), "Install Spotify from Flathub")?;
             if !detect_spotify() { return Err("Flatpak reported success, but Spotify was not detected afterward. Refresh status.".into()); }
+            emit_install_progress(app, "spotify", "opening", "Launching Spotify from Flatpak.");
+            let _ = Command::new("flatpak").args(["run", "com.spotify.Client"]).spawn();
             return Ok(CommandResult { success: true, command: "Install Spotify using the Flathub Flatpak package".into(), code: output.status.code(), stdout: output_text(&output.stdout), stderr: output_text(&output.stderr) });
         }
         Err(format!("Automatic Spotify installation is not yet supported for Linux distribution '{id}' (ID_LIKE='{like}'). SpiceDeck supports the official Spotify APT repository on Debian/Ubuntu-based systems and a user-scoped Flathub install where Flatpak is available."))
@@ -388,12 +417,13 @@ fn install_spotify() -> Result<CommandResult, String> {
     { Err("Automatic Spotify installation is not supported on this operating system.".into()) }
 }
 
-fn install_spicetify() -> Result<CommandResult, String> {
+fn install_spicetify(app: &AppHandle) -> Result<CommandResult, String> {
     if spicetify_binary_exists() {
         return Err("Spicetify is already detected. Refresh status before attempting another installation.".into());
     }
     let temp = install_temp_dir()?;
     let release_json = temp.join("latest-release.json");
+    emit_install_progress(app, "spicetify", "downloading", "Fetching the latest official Spicetify release metadata.");
     download_file("https://api.github.com/repos/spicetify/cli/releases/latest", &release_json)?;
     let release: serde_json::Value = serde_json::from_slice(&fs::read(&release_json).map_err(|error| error.to_string())?)
         .map_err(|error| format!("Could not read Spicetify's official release metadata: {error}"))?;
@@ -417,6 +447,7 @@ fn install_spicetify() -> Result<CommandResult, String> {
 
     let archive = temp.join(archive_name);
     download_file(&format!("https://github.com/spicetify/cli/releases/download/v{version}/{asset}"), &archive)?;
+    emit_install_progress(app, "spicetify", "installing", format!("Extracting Spicetify CLI {version} into your user profile."));
     let home = std::env::var(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map_err(|_| "Could not locate the user's home directory.".to_string())?;
     let install_dir = if cfg!(windows) {
         PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_else(|_| home.clone())).join("spicetify")
@@ -440,6 +471,7 @@ fn install_spicetify() -> Result<CommandResult, String> {
 
     let _ = fs::remove_dir_all(&temp);
     let executable = if cfg!(windows) { install_dir.join("spicetify.exe") } else { install_dir.join("spicetify") };
+    emit_install_progress(app, "spicetify", "verifying", "Verifying the installed Spicetify executable.");
     if !executable.is_file() { return Err(format!("The installer finished but {} was not found.", executable.display())); }
     Ok(CommandResult { success: true, command: format!("Download and install official Spicetify CLI {version}"), code: Some(0), stdout: format!("Installed official Spicetify CLI {version} to {}. CLI execution and version verification are deferred until you confirm Spotify sign-in in SpiceDeck.", executable.display()), stderr: String::new() })
 }
