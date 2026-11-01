@@ -30,7 +30,20 @@ struct Status {
     spicetify_found: bool,
     version: Option<String>,
     spotify_found: bool,
+    spotify_compatibility: String,
+    spotify_details: String,
+    spotify_path: Option<String>,
+    prefs_path: Option<String>,
     config_path: Option<String>,
+}
+
+#[derive(Default)]
+struct SpotifyDetection {
+    installed: bool,
+    compatibility: String,
+    details: String,
+    spotify_path: Option<String>,
+    prefs_path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -300,8 +313,9 @@ fn install_software(target: String) -> Result<CommandResult, String> {
 }
 
 fn install_spotify() -> Result<CommandResult, String> {
-    if detect_spotify() {
-        return Err("Spotify is already detected. Refresh status before attempting another installation.".into());
+    let current = detect_spotify_installation();
+    if current.installed && current.compatibility != "unsupported" {
+        return Err("A Spotify installation is already present. Refresh status and review its compatibility details before installing another copy.".into());
     }
 
     #[cfg(target_os = "windows")]
@@ -441,6 +455,7 @@ fn get_status() -> Status {
         .filter(|value| !value.is_empty());
     let config_path = config_directory()
         .map(|path| path.to_string_lossy().to_string());
+    let spotify = detect_spotify_installation();
     Status {
         platform: if cfg!(target_os = "windows") { "Windows".into() }
             else if cfg!(target_os = "macos") { "macOS".into() }
@@ -448,45 +463,142 @@ fn get_status() -> Status {
             else { std::env::consts::OS.into() },
         spicetify_found,
         version,
-        spotify_found: detect_spotify(),
+        spotify_found: spotify.installed,
+        spotify_compatibility: spotify.compatibility,
+        spotify_details: spotify.details,
+        spotify_path: spotify.spotify_path,
+        prefs_path: spotify.prefs_path,
         config_path,
     }
 }
 
 fn detect_spotify() -> bool {
+    detect_spotify_installation().installed
+}
+
+fn detect_spotify_installation() -> SpotifyDetection {
+    let home = std::env::var("HOME").unwrap_or_default();
     #[cfg(target_os = "windows")]
     {
-        let appdata = std::env::var("APPDATA").unwrap_or_default();
+        let roaming = std::env::var("APPDATA").unwrap_or_default();
         let local = std::env::var("LOCALAPPDATA").unwrap_or_default();
-        return [
-            Path::new(&appdata).join("Spotify/Spotify.exe"),
-            Path::new(&local).join("Spotify/Spotify.exe"),
-            Path::new(&local).join("Microsoft/WindowsApps/Spotify.exe"),
-        ].iter().any(|path| path.exists());
+        let candidates = [
+            Path::new(&roaming).join("Spotify"),
+            Path::new(&local).join("Spotify"),
+            Path::new(&local).join("Programs/Spotify"),
+        ];
+        if let Some(path) = candidates.iter().find(|path| path.join("Spotify.exe").is_file()) {
+            let prefs = Path::new(&roaming).join("Spotify/prefs");
+            return SpotifyDetection {
+                installed: true,
+                compatibility: if prefs.is_file() { "compatible" } else { "needs_configuration" }.into(),
+                details: format!("Standard Spotify desktop installation detected at {}.{}",
+                    path.display(),
+                    if prefs.is_file() { "" } else { " Launch Spotify and sign in for at least 60 seconds so it creates its preferences file." }),
+                spotify_path: Some(path.to_string_lossy().to_string()),
+                prefs_path: prefs.is_file().then(|| prefs.to_string_lossy().to_string()),
+            };
+        }
+        let packages = Path::new(&local).join("Packages");
+        let store_found = fs::read_dir(packages).ok().into_iter().flatten().flatten()
+            .any(|entry| entry.file_name().to_string_lossy().starts_with("SpotifyAB.SpotifyMusic"));
+        if store_found {
+            return SpotifyDetection {
+                installed: true,
+                compatibility: "unsupported".into(),
+                details: "Microsoft Store Spotify was detected. Spicetify documents this distribution as unsupported; install the regular desktop version from Spotify's website instead.".into(),
+                ..Default::default()
+            };
+        }
     }
     #[cfg(target_os = "macos")]
     {
-        let home = std::env::var("HOME").unwrap_or_default();
-        return Path::new("/Applications/Spotify.app").exists()
-            || Path::new(&home).join("Applications/Spotify.app").exists();
+        let candidates = [
+            PathBuf::from("/Applications/Spotify.app/Contents/Resources"),
+            Path::new(&home).join("Applications/Spotify.app/Contents/Resources"),
+        ];
+        if let Some(path) = candidates.iter().find(|path| path.is_dir()) {
+            let prefs = Path::new(&home).join("Library/Application Support/Spotify/prefs");
+            return SpotifyDetection {
+                installed: true,
+                compatibility: if prefs.is_file() { "compatible" } else { "needs_configuration" }.into(),
+                details: format!("Spotify desktop app detected at {}.{}",
+                    path.display(),
+                    if prefs.is_file() { "" } else { " Launch Spotify and sign in for at least 60 seconds to generate its preferences file." }),
+                spotify_path: Some(path.to_string_lossy().to_string()),
+                prefs_path: prefs.is_file().then(|| prefs.to_string_lossy().to_string()),
+            };
+        }
     }
     #[cfg(target_os = "linux")]
     {
-        let home = std::env::var("HOME").unwrap_or_default();
-        let paths = vec![
+        let prefs_candidates = [
+            Path::new(&home).join(".config/spotify/prefs"),
+            Path::new(&home).join(".var/app/com.spotify.Client/config/spotify/prefs"),
+        ];
+        let prefs = prefs_candidates.iter().find(|path| path.is_file()).cloned();
+
+        if Path::new("/snap/bin/spotify").exists()
+            || Path::new("/var/lib/snapd/snap/bin/spotify").exists() {
+            return SpotifyDetection {
+                installed: true,
+                compatibility: "unsupported".into(),
+                details: "Snap Spotify was detected. Spicetify cannot modify Snap installations. Install Spotify through APT or a supported Flatpak distribution instead.".into(),
+                ..Default::default()
+            };
+        }
+
+        if command_available("flatpak") {
+            if let Ok(output) = Command::new("flatpak").args(["info", "--show-location", "com.spotify.Client"]).output() {
+                if output.status.success() {
+                    let deployment = PathBuf::from(output_text(&output.stdout));
+                    let path = deployment.join("files/extra/share/spotify");
+                    if path.is_dir() {
+                        let prefs_path = prefs.clone();
+                        let prefs_message = prefs_path.as_ref().map(|p| p.display().to_string())
+                            .unwrap_or_else(|| "not found yet".into());
+                        return SpotifyDetection {
+                            installed: true,
+                            compatibility: "needs_configuration".into(),
+                            details: format!("Flatpak Spotify detected. Spicetify needs spotify_path set to {} and prefs_path set to {}. The Spotify files must also be writable by your user. Launch Spotify and sign in first if the prefs file is missing.", path.display(), prefs_message),
+                            spotify_path: Some(path.to_string_lossy().to_string()),
+                            prefs_path: prefs_path.map(|p| p.to_string_lossy().to_string()),
+                        };
+                    }
+                }
+            }
+        }
+
+        let candidates = [
             PathBuf::from("/usr/share/spotify"),
             PathBuf::from("/usr/lib/spotify"),
-            PathBuf::from("/var/lib/flatpak/app/com.spotify.Client"),
-            PathBuf::from("/var/lib/snapd/snap/bin/spotify"),
-            PathBuf::from("/snap/bin/spotify"),
-            Path::new(&home).join(".local/share/flatpak/app/com.spotify.Client"),
-            Path::new(&home).join(".var/app/com.spotify.Client"),
+            PathBuf::from("/opt/spotify"),
+            Path::new(&home).join(".local/share/spotify-launcher/install/usr/share/spotify"),
             Path::new(&home).join(".local/share/spotify"),
         ];
-        return paths.iter().any(|path| path.exists());
+        if let Some(path) = candidates.iter().find(|path| path.join("Apps").is_dir() || path.join("spotify").is_file() || path.is_dir()) {
+            let prefs_path = prefs.clone();
+            let install_kind = if path == &PathBuf::from("/opt/spotify") { "Arch/AUR" }
+                else if path == &PathBuf::from("/usr/share/spotify") || path == &PathBuf::from("/usr/lib/spotify") { "APT/system package" }
+                else { "user-local Spotify installation" };
+            return SpotifyDetection {
+                installed: true,
+                compatibility: "needs_configuration".into(),
+                details: format!("{} detected at {}. Spicetify requires write access to the Spotify directory (including its Apps folder).{}",
+                    install_kind, path.display(),
+                    prefs_path.as_ref().map(|p| format!(" Preferences file: {}.", p.display()))
+                        .unwrap_or_else(|| " The Spotify prefs file was not found; launch Spotify and sign in for at least 60 seconds.".into())),
+                spotify_path: Some(path.to_string_lossy().to_string()),
+                prefs_path: prefs_path.map(|p| p.to_string_lossy().to_string()),
+            };
+        }
     }
-    #[allow(unreachable_code)]
-    false
+    SpotifyDetection {
+        installed: false,
+        compatibility: "not_installed".into(),
+        details: "No supported Spotify desktop installation was found in the standard locations.".into(),
+        ..Default::default()
+    }
 }
 
 fn customization_dir(kind: &str) -> PathBuf {
