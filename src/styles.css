@@ -205,15 +205,19 @@ button { min-height: 34px; }
 }
 
 
-/* Live installer progress panels in the setup wizard. */
-.wizard-card{display:grid;grid-template-columns:43px minmax(0,1fr) minmax(230px,285px);align-items:start}
-.wizard-card-body{display:contents}
-.wizard-card-body>.eyebrow,.wizard-card-body>h2,.wizard-card-body>p,.wizard-card-body>.button,.wizard-card-body>.wizard-platform-note,.wizard-card-body>.wizard-footnote,.wizard-card-body>.wizard-doc-link{grid-column:2}
-.wizard-card-body>.installer-progress{grid-column:3;grid-row:1 / span 14;align-self:stretch}
-.wizard-card-done{grid-template-columns:37px minmax(0,1fr) minmax(230px,285px)}
-.wizard-card-done .wizard-card-body{display:contents}
-.wizard-card-done .wizard-card-body>.eyebrow,.wizard-card-done .wizard-card-body>h2,.wizard-card-done .wizard-card-body>p{grid-column:2}
-.wizard-card-done .wizard-card-body>.installer-progress{grid-column:3;grid-row:1 / span 6}
+/* Live installer progress panels. Keep the verification card on its original layout. */
+.wizard-card-progress{display:grid;grid-template-columns:43px minmax(0,1fr) minmax(230px,285px);align-items:start}
+.wizard-card-progress .wizard-card-body{display:contents}
+.wizard-card-progress .wizard-card-body>.eyebrow,
+.wizard-card-progress .wizard-card-body>h2,
+.wizard-card-progress .wizard-card-body>p,
+.wizard-card-progress .wizard-card-body>.button,
+.wizard-card-progress .wizard-card-body>.wizard-platform-note,
+.wizard-card-progress .wizard-card-body>.wizard-footnote,
+.wizard-card-progress .wizard-card-body>.wizard-doc-link{grid-column:2}
+.wizard-card-progress .wizard-card-body>.installer-progress{grid-column:3;grid-row:1 / span 14;align-self:stretch}
+.wizard-card-progress.wizard-card-done{grid-template-columns:37px minmax(0,1fr) minmax(230px,285px)}
+.wizard-card-progress.wizard-card-done .wizard-card-body>.installer-progress{grid-column:3;grid-row:1 / span 6}
 .installer-progress{min-width:0;padding:14px;border:1px solid #303a30;border-radius:9px;background:#111611}
 .installer-progress-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px}
 .installer-progress-top strong{font-size:11px;color:#e2eadf}
@@ -235,5 +239,5 @@ button { min-height: 34px; }
 .installer-progress.has-error{border-color:#684039}
 .installer-progress.has-error .installer-progress-track>span{background:#dc806f}
 .installer-progress.is-complete .installer-progress-track>span{background:#8fce82}
-@media(max-width:1050px){.wizard-card,.wizard-card-done{grid-template-columns:43px minmax(0,1fr)}.wizard-card-body>.installer-progress,.wizard-card-done .wizard-card-body>.installer-progress{grid-column:2;grid-row:auto;max-width:none;width:100%;margin-top:5px}}
-@media(max-width:600px){.wizard-card{display:flex;flex-direction:column}.wizard-card-body{display:flex;flex-direction:column;width:100%}.wizard-card-body>.installer-progress{width:100%}}
+@media(max-width:1050px){.wizard-card-progress,.wizard-card-progress.wizard-card-done{grid-template-columns:43px minmax(0,1fr)}.wizard-card-progress .wizard-card-body>.installer-progress{grid-column:2;grid-row:auto;max-width:none;width:100%;margin-top:5px}}
+@media(max-width:600px){.wizard-card-progress{display:flex;flex-direction:column}.wizard-card-progress .wizard-card-body{display:flex;flex-direction:column;width:100%}.wizard-card-progress .wizard-card-body>.installer-progress{width:100%}}
