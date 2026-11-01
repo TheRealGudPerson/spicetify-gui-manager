@@ -203,3 +203,37 @@ button { min-height: 34px; }
   .preview-dialog-footer > span { min-width: 0; }
   .preview-dialog-footer .button { justify-content: center; }
 }
+
+
+/* Live installer progress panels in the setup wizard. */
+.wizard-card{display:grid;grid-template-columns:43px minmax(0,1fr) minmax(230px,285px);align-items:start}
+.wizard-card-body{display:contents}
+.wizard-card-body>.eyebrow,.wizard-card-body>h2,.wizard-card-body>p,.wizard-card-body>.button,.wizard-card-body>.wizard-platform-note,.wizard-card-body>.wizard-footnote,.wizard-card-body>.wizard-doc-link{grid-column:2}
+.wizard-card-body>.installer-progress{grid-column:3;grid-row:1 / span 14;align-self:stretch}
+.wizard-card-done{grid-template-columns:37px minmax(0,1fr) minmax(230px,285px)}
+.wizard-card-done .wizard-card-body{display:contents}
+.wizard-card-done .wizard-card-body>.eyebrow,.wizard-card-done .wizard-card-body>h2,.wizard-card-done .wizard-card-body>p{grid-column:2}
+.wizard-card-done .wizard-card-body>.installer-progress{grid-column:3;grid-row:1 / span 6}
+.installer-progress{min-width:0;padding:14px;border:1px solid #303a30;border-radius:9px;background:#111611}
+.installer-progress-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px}
+.installer-progress-top strong{font-size:11px;color:#e2eadf}
+.installer-progress-top>span{font:11px 'DM Mono',monospace;color:var(--green)}
+.installer-progress-track{height:5px;overflow:hidden;border-radius:99px;background:#293129;margin-bottom:14px}
+.installer-progress-track>span{display:block;height:100%;border-radius:inherit;background:var(--green);transition:width .25s ease}
+.installer-stage-list{display:flex;flex-direction:column;gap:11px}
+.installer-stage{display:grid;grid-template-columns:17px minmax(0,1fr) auto;align-items:center;gap:8px;color:#758075;font-size:11px}
+.installer-stage-indicator{width:17px;height:17px;display:grid;place-items:center;border:1px solid #465046;border-radius:50%;color:#849084}
+.installer-stage small{font-size:9px;color:#687468}
+.installer-stage.active{color:#e2eadf}
+.installer-stage.active .installer-stage-indicator{border-color:#8dbb63;color:var(--green)}
+.installer-stage.active small{color:var(--green)}
+.installer-stage.done{color:#a9dca1}
+.installer-stage.done .installer-stage-indicator{border-color:#486848;background:#203023;color:#a9dca1}
+.installer-stage.done small{color:#8eb58a}
+.installer-stage.failed,.installer-stage.failed small{color:#ff9d91}
+.installer-progress-message{margin:13px 0 0;padding-top:10px;border-top:1px solid #293129;color:#929e92;font-size:10px;line-height:1.55;overflow-wrap:anywhere}
+.installer-progress.has-error{border-color:#684039}
+.installer-progress.has-error .installer-progress-track>span{background:#dc806f}
+.installer-progress.is-complete .installer-progress-track>span{background:#8fce82}
+@media(max-width:1050px){.wizard-card,.wizard-card-done{grid-template-columns:43px minmax(0,1fr)}.wizard-card-body>.installer-progress,.wizard-card-done .wizard-card-body>.installer-progress{grid-column:2;grid-row:auto;max-width:none;width:100%;margin-top:5px}}
+@media(max-width:600px){.wizard-card{display:flex;flex-direction:column}.wizard-card-body{display:flex;flex-direction:column;width:100%}.wizard-card-body>.installer-progress{width:100%}}
