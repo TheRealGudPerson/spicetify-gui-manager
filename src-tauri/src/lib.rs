@@ -651,12 +651,29 @@ fn detect_spotify_installation() -> SpotifyDetection {
                     let path = deployment.join("files/extra/share/spotify");
                     if path.is_dir() {
                         let prefs_path = prefs.clone();
-                        let prefs_message = prefs_path.as_ref().map(|p| p.display().to_string())
-                            .unwrap_or_else(|| "not found yet".into());
+                        let writable = Command::new("sh")
+                            .args(["-c", "test -w \"$1\" && test -w \"$1/Apps\"", "spicedeck-check"])
+                            .arg(&path)
+                            .status()
+                            .map(|status| status.success())
+                            .unwrap_or(false);
+                        let configured = writable && prefs_path.is_some();
+                        let details = format!(
+                            "Flatpak Spotify detected at {}. {}{}",
+                            path.display(),
+                            if writable {
+                                "The Spotify application directory and Apps folder are writable by your user. "
+                            } else {
+                                "Spicetify needs write access to the Spotify application directory and its Apps folder. Follow the official Flatpak permissions instructions. "
+                            },
+                            prefs_path.as_ref()
+                                .map(|p| format!("Preferences file detected at {}.", p.display()))
+                                .unwrap_or_else(|| "The Spotify prefs file was not found. Launch Spotify and sign in, then refresh status.".into())
+                        );
                         return SpotifyDetection {
                             installed: true,
-                            compatibility: "needs_configuration".into(),
-                            details: format!("Flatpak Spotify detected. Spicetify needs spotify_path set to {} and prefs_path set to {}. The Spotify files must also be writable by your user. Launch Spotify and sign in first if the prefs file is missing.", path.display(), prefs_message),
+                            compatibility: if configured { "compatible" } else { "needs_configuration" }.into(),
+                            details,
                             spotify_path: Some(path.to_string_lossy().to_string()),
                             prefs_path: prefs_path.map(|p| p.to_string_lossy().to_string()),
                         };
