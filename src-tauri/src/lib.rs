@@ -548,6 +548,30 @@ fn detect_spotify_installation() -> SpotifyDetection {
             };
         }
 
+        let candidates = [
+            PathBuf::from("/usr/share/spotify"),
+            PathBuf::from("/usr/lib/spotify"),
+            PathBuf::from("/opt/spotify"),
+            Path::new(&home).join(".local/share/spotify-launcher/install/usr/share/spotify"),
+            Path::new(&home).join(".local/share/spotify"),
+        ];
+        if let Some(path) = candidates.iter().find(|path| path.join("Apps").is_dir() || path.join("spotify").is_file() || path.is_dir()) {
+            let prefs_path = prefs.clone();
+            let install_kind = if path.as_path() == Path::new("/opt/spotify") { "Arch/AUR" }
+                else if path.as_path() == Path::new("/usr/share/spotify") || path.as_path() == Path::new("/usr/lib/spotify") { "APT/system package" }
+                else { "user-local Spotify installation" };
+            return SpotifyDetection {
+                installed: true,
+                compatibility: "needs_configuration".into(),
+                details: format!("{} detected at {}. Spicetify requires write access to the Spotify directory (including its Apps folder).{}",
+                    install_kind, path.display(),
+                    prefs_path.as_ref().map(|p| format!(" Preferences file: {}.", p.display()))
+                        .unwrap_or_else(|| " The Spotify prefs file was not found; launch Spotify and sign in for at least 60 seconds.".into())),
+                spotify_path: Some(path.to_string_lossy().to_string()),
+                prefs_path: prefs_path.map(|p| p.to_string_lossy().to_string()),
+            };
+        }
+
         if command_available("flatpak") {
             if let Ok(output) = Command::new("flatpak").args(["info", "--show-location", "com.spotify.Client"]).output() {
                 if output.status.success() {
@@ -567,30 +591,6 @@ fn detect_spotify_installation() -> SpotifyDetection {
                     }
                 }
             }
-        }
-
-        let candidates = [
-            PathBuf::from("/usr/share/spotify"),
-            PathBuf::from("/usr/lib/spotify"),
-            PathBuf::from("/opt/spotify"),
-            Path::new(&home).join(".local/share/spotify-launcher/install/usr/share/spotify"),
-            Path::new(&home).join(".local/share/spotify"),
-        ];
-        if let Some(path) = candidates.iter().find(|path| path.join("Apps").is_dir() || path.join("spotify").is_file() || path.is_dir()) {
-            let prefs_path = prefs.clone();
-            let install_kind = if path == &PathBuf::from("/opt/spotify") { "Arch/AUR" }
-                else if path == &PathBuf::from("/usr/share/spotify") || path == &PathBuf::from("/usr/lib/spotify") { "APT/system package" }
-                else { "user-local Spotify installation" };
-            return SpotifyDetection {
-                installed: true,
-                compatibility: "needs_configuration".into(),
-                details: format!("{} detected at {}. Spicetify requires write access to the Spotify directory (including its Apps folder).{}",
-                    install_kind, path.display(),
-                    prefs_path.as_ref().map(|p| format!(" Preferences file: {}.", p.display()))
-                        .unwrap_or_else(|| " The Spotify prefs file was not found; launch Spotify and sign in for at least 60 seconds.".into())),
-                spotify_path: Some(path.to_string_lossy().to_string()),
-                prefs_path: prefs_path.map(|p| p.to_string_lossy().to_string()),
-            };
         }
     }
     SpotifyDetection {
